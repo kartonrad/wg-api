@@ -8,12 +8,12 @@ use dotenvy::dotenv;
 
 //pretty logs
 extern crate pretty_env_logger;
+#[macro_use] extern crate log;
 #[allow(unused_imports)]
-use log::{error, warn, info, debug, trace};
 use std::{env, io::Error};
 
 //--IMPORT-ANT IMPORTS
-use actix_web::{App, HttpResponse, HttpServer, Responder, get};
+use actix_web::{App, HttpResponse, HttpServer, Responder, get, middleware::Logger};
 use sqlx::{postgres::{PgPool, PgPoolOptions}};
 use lazy_static::lazy_static;
 use async_once::AsyncOnce;
@@ -23,15 +23,15 @@ use time::{OffsetDateTime, UtcOffset};
 use std::{env, fs::{read_to_string, read_dir}, fmt::Display};
 use rust_decimal::prelude::*;*/
 
+pub mod auth;
 pub mod routes;
+pub mod embedded_asset_serve;
 
 //-------ROUTES
 #[get("/")]
 async fn genesis() -> impl Responder {
     trace!("Greeting User");
-    HttpResponse::Ok()
-        .append_header(( "CONTENT-TYPE", "text/plain; charset=UTF-8" ))
-        .body("✨ New Rust🦀 Project! ✨")
+    return "✨ New Rust🦀 Project! ✨"
 }
 
 lazy_static! {
@@ -68,6 +68,9 @@ async fn main() -> Result<(),std::io::Error> {
     // Setup Server
     let mut server = HttpServer::new( || {
         App::new()
+            .wrap(Logger::new(r#"[%a] "%r" %s %bb "%{Referer}i" "%{User-Agent}i" %Dms"#))
+            .configure(auth::config)
+            .configure(embedded_asset_serve::config)
             .service(genesis)
     } );
 
