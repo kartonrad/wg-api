@@ -13,7 +13,7 @@ extern crate pretty_env_logger;
 use std::{env, io::Error};
 
 //--IMPORT-ANT IMPORTS
-use actix_web::{App, HttpResponse, HttpServer, Responder, get, middleware::Logger};
+use actix_web::{App, HttpServer, Responder, get, middleware::Logger};
 use sqlx::{postgres::{PgPool, PgPoolOptions}};
 use lazy_static::lazy_static;
 use async_once::AsyncOnce;
@@ -94,7 +94,7 @@ async fn main() -> Result<(),std::io::Error> {
     server.run().await.into()
 }
 
-fn handle_err_except_duplicate(err: sqlx::Error) -> Result<(), sqlx::Error>{
+/*fn handle_err_except_duplicate(err: sqlx::Error) -> Result<(), sqlx::Error>{
     if let Some(db_err) = err.as_database_error() {
         if let Some(err_code) = db_err.code() {
             if err_code == "23505" {
@@ -104,4 +104,4 @@ fn handle_err_except_duplicate(err: sqlx::Error) -> Result<(), sqlx::Error>{
         }
     } 
     Err(err)
-}
+}*/

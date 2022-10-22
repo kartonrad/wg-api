@@ -1,6 +1,6 @@
 use serde::{Serialize, Deserialize};
 use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey, get_current_timestamp};
-use actix_web::{ HttpResponse, Responder, get, http::{header::{self, ContentType}, StatusCode}, FromRequest, dev::{Response, Payload, ConnectionInfo}, HttpRequest, ResponseError, error::{self, InternalError}, web::{self, Query}, post, cookie::Cookie};
+use actix_web::{ HttpResponse, Responder, get, http::{header::{self, ContentType}, StatusCode}, FromRequest, dev::{Payload, ConnectionInfo}, HttpRequest, error::InternalError, web,  post, cookie::Cookie};
 #[allow(unused_imports)]
 use log::{error, warn, info, debug, trace};
 use lazy_static::lazy_static;
@@ -53,6 +53,7 @@ struct JWTClaims {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct Identity {
     id: i32,
     profile_pic: Option<i32>,
