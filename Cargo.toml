@@ -8,26 +8,31 @@ authors = ["Kartonrad <hi@kartonrad.de>"]
 
 [dependencies]
 actix-web = "4.2.1"
+tokio =  { version = "1.21.2", features = ["fs"] }
+actix-multipart = "0.4.0"
+rust-embed = "6.4.2"
+mime_guess = "2.0.4"
+
 sqlx = { version = "0.6.2", default-features = false, features = [ "runtime-actix-native-tls", "macros", "postgres", "json", "tls", "time", "migrate", "decimal" ] }
-num-rational = { version = "0.4.1", features = ["serde"] } 
-num-traits = "0.2.15"
 rust_decimal = "1.26.1"
 
 lazy_static = "1.4.0"
 async_once = "0.2.6"
 futures-util = "0.3.24"
-rust-embed = "6.4.2"
-mime_guess = "2.0.4"
+array-macro = "2.1.5"
+
 thiserror = "1.0.37"
 
 serde = { version = "1.0.145", features = ["derive"] }
 serde_json = "1.0.85"
 serde_with = "2.0.1"
-time = { version = "0.3.14", features = ["serde-well-known", "local-offset"] }
+time = { version = "0.3.14", features = ["serde-well-known", "local-offset", "parsing"] }
+
 jsonwebtoken = "8.1.1"
 pbkdf2 = { version = "0.11.0" }
 password-hash = { version = "0.4", features = ["alloc", "std"] }
 base64 = "0.13.1"
+
 listenfd = "1.0.0"
 log = "0.4.17"
 pretty_env_logger = "0.4.0"

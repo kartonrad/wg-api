@@ -9,6 +9,7 @@ use dotenvy::dotenv;
 //pretty logs
 extern crate pretty_env_logger;
 #[macro_use] extern crate log;
+use std::fs::{create_dir_all, remove_dir_all};
 #[allow(unused_imports)]
 use std::{env, io::Error};
 
@@ -65,12 +66,18 @@ async fn main() -> Result<(),std::io::Error> {
     info!("Migrating Database...");
     sqlx::migrate!().run(db!()).await.map_err(|err| Error::new(std::io::ErrorKind::Other, format!("{:?}", err)))?;
 
+    // Create and Clear CLEAR uploads folder
+    create_dir_all("uploads/temp")?;
+    remove_dir_all("uploads/temp")?;
+    create_dir_all("uploads/temp")?;
+
     // Setup Server
     let mut server = HttpServer::new( || {
         App::new()
             .wrap(Logger::new(r#"[%a] "%r" %s %bb "%{Referer}i" "%{User-Agent}i" %Dms"#))
             .configure(auth::config)
             .configure(embedded_asset_serve::config)
+            .configure(routes::config)
             .service(genesis)
     } );
 
