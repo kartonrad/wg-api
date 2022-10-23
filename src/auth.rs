@@ -1,5 +1,5 @@
 use serde::{Serialize, Deserialize};
-use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey, get_current_timestamp};
+use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey, get_current_timestamp, TokenData};
 use actix_web::{ HttpResponse, Responder, get, http::{header::{self, ContentType}, StatusCode}, FromRequest, dev::{Payload, ConnectionInfo}, HttpRequest, error::InternalError, web,  post, cookie::Cookie};
 #[allow(unused_imports)]
 use log::{error, warn, info, debug, trace};
@@ -52,20 +52,34 @@ struct JWTClaims {
     //sub: String,         // Optional. Subject (whom token refers to)
 }
 
-#[derive(Debug)]
-#[allow(dead_code)]
+#[derive(Debug, Serialize, Clone)]
+#[serde(into = "SerdeIdentity")] 
 pub struct Identity {
-    id: i32,
-    profile_pic: Option<i32>,
-    name: String,
-    bio: String,
+    pub id: i32,
+    pub profile_pic: Option<i32>,
+    pub name: String,
+    pub bio: String,
 
-    username: String, // '[abcdefghijklmopqrstuvwxyz0123456789-_]+'
-    password_hash: String,
-    revoke_before: time::PrimitiveDateTime,
+    pub username: String, // '[abcdefghijklmopqrstuvwxyz0123456789-_]+'
+    pub password_hash: String,
+    pub revoke_before: time::PrimitiveDateTime,
 
-    wg: Option<i32>
+    pub wg: Option<i32>
 }
+#[derive(Debug, Serialize, Deserialize)]
+struct SerdeIdentity {
+    id: i32,profile_pic: Option<i32>,name: String,bio: String,username: String,password_hash: String,wg: Option<i32>,
+    #[serde(with = "time::serde::rfc3339")]
+    revoke_before: time::OffsetDateTime
+}
+impl Into<SerdeIdentity> for Identity {
+    fn into(self) -> SerdeIdentity {
+        SerdeIdentity{ id: self.id, profile_pic: self.profile_pic, name: self.name, bio: self.bio, password_hash: self.password_hash, wg: self.wg, username:self.username,
+            revoke_before: self.revoke_before.assume_utc() 
+        }
+    }
+}
+
 
 pub struct TryIdentity(Option<Identity>);
 pub struct MaybeIdentity(Result<Identity, actix_web::Error>);
@@ -74,6 +88,8 @@ pub struct MaybeIdentity(Result<Identity, actix_web::Error>);
 enum AuthError {
     #[error("Database-Connector ran into an Error")]
     Database( #[from] sqlx::error::Error ),
+    #[error("Concurrency Error :(")]
+    Blocking(#[from] actix_web::error::BlockingError),
     #[error("JWT Token malformed, forged, outdated, not applicable or otherwise unusable. Shame.")]
     JWTForged( #[from] jsonwebtoken::errors::Error ),
     #[error("The JWT was revoked, or was -paradoxically- issued before this Object even existed")]
@@ -85,6 +101,7 @@ impl actix_web::error::ResponseError for AuthError {
     fn status_code(&self) -> StatusCode {
         match *self {
             AuthError::Database(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            AuthError::Blocking(_) => StatusCode::INTERNAL_SERVER_ERROR,
             _ => StatusCode::FORBIDDEN
         }
     }
@@ -128,8 +145,11 @@ impl actix_web::error::ResponseError for LoginError {
 
 // ================================================================================== ROUTES ==================================================================================
 #[get("/priviledged")]
-async fn priviledged(auth : Identity) -> impl Responder {
+async fn priviledged(mut auth : Identity) -> impl Responder {
     trace!("User sucessfully authenticated");
+
+    auth.password_hash = "<Not Provided>".to_string();
+
     HttpResponse::Ok()
         .append_header(( "CONTENT-TYPE", "text/html; charset=UTF-8" ))
         .body(format!(
@@ -193,7 +213,7 @@ async fn unsafe_login_handler(conn: ConnectionInfo, login_info: web::Query<Login
 
     Ok( HttpResponse::Ok()
         .cookie(
-            Cookie::build(&cookie_name("auth_token"), &jwt).http_only(true).permanent().finish()
+            Cookie::build(&cookie_name("auth_token"), &jwt).http_only(true).permanent().path("/").finish()
         ).json(json!(
             {
                 "token": jwt,
@@ -266,7 +286,13 @@ async fn login ( login_info: LoginInfo ) -> Result<String, LoginError> {
 }
 
 async fn authenticate(provided_token : &str) -> Result<TryIdentity, AuthError> {
-    let token_d = decode::<JWTClaims>(provided_token, &JWT_DEC_KEY, &JWT_VAL)?;
+    // Block on JWT Decode
+    let provided_token = provided_token.to_owned();
+    let token_d = 
+        web::block( move || -> Result<TokenData<JWTClaims>, AuthError> {
+            Ok(decode::<JWTClaims>(&provided_token, &JWT_DEC_KEY, &JWT_VAL)?)
+        }).await??;
+    
     
     let user = sqlx::query_as!(Identity, "SELECT * FROM users WHERE id = $1;", token_d.claims.auth_as)
         .fetch_one( DB_POOL.get().await).await
@@ -365,7 +391,7 @@ fn auth_error<T : std::fmt::Debug + std::fmt::Display + 'static >(source_err: Op
     res_error(StatusCode::UNAUTHORIZED, source_err, msg)
 }
 
-fn res_error<T : std::fmt::Debug + std::fmt::Display + 'static >(status : StatusCode, source_err: Option<T>, msg: &str) -> Error {
+pub fn res_error<T : std::fmt::Debug + std::fmt::Display + 'static >(status : StatusCode, source_err: Option<T>, msg: &str) -> Error {
     let mut res = HttpResponse::build(status);
         
     if status == StatusCode::UNAUTHORIZED { 
