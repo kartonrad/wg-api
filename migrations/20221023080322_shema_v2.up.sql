@@ -12,7 +12,7 @@ CREATE TABLE costs (
 );
 
 CREATE TABLE cost_shares (
-    cost_id int REFERENCES users(id) NOT NULL,
+    cost_id int REFERENCES costs(id) NOT NULL,
     debtor_id int REFERENCES users(id) NOT NULL,
     paid boolean NOT NULL,
     PRIMARY KEY(cost_id, debtor_id)
