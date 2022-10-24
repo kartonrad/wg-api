@@ -24,6 +24,7 @@ use time::{OffsetDateTime, UtcOffset};
 use std::{env, fs::{read_to_string, read_dir}, fmt::Display};
 use rust_decimal::prelude::*;*/
 
+pub mod file_uploads;
 pub mod auth;
 pub mod routes;
 pub mod embedded_asset_serve;

@@ -1,184 +1,11 @@
 use actix_multipart::Multipart;
 use actix_web::{ HttpResponse, Responder, get, put, delete, post, http::StatusCode, dev::{ConnectionInfo}, web, Error,};
-use futures_util::StreamExt;
 use serde::Serialize;
-use sqlx::{Transaction, Postgres};
-use crate::DB_POOL;
+use crate::{DB_POOL, change_upload, auth::res_error, file_uploads::{Upload, DBRetrUpload}};
 
 use super::auth::Identity;
-use tokio::{fs::{OpenOptions,self}, io::AsyncWriteExt};
-use std::fs::remove_file as remove_file_sync;
-use std::{
-    sync::atomic::{AtomicUsize, Ordering}, str::Utf8Error
-};
-use thiserror::Error as ThisErrorError;
-use array_macro::array;
 
-// ================================================================================== CONSTS/STATICS ==================================================================================
-
-static TEMP_UPLOAD_COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-// ================================================================================== STATE MODEL ==================================================================================
-
-#[derive(ThisErrorError, Debug)]
-enum UploadError {
-    #[error("File Size can't exceed {}MB!", .0/1000000)]
-    MaxSizeExceeded(usize),
-    #[error("The multipart/form-data header appears to be missing Information on (whats supposed to be) the File (check filename/extension header)")]
-    NotFile,
-    #[error("Multipart Form failed.")]
-    Multipart( #[from] actix_multipart::MultipartError ),
-    #[error("Couldn't create/delete/update file.")]
-    IO( #[from] std::io::Error ),
-    #[error("Nahhh bro you tripping. The Field '{0}' has nothing to do with this endpoint, gett it outta here 🙄")]
-    UnknownField( String ),
-    #[error("💀💀 Why is field '{0}' empty??? Why send it in the first place????")]
-    EmptyTextField( String ),
-    #[error("Bozo sent a text field with invalid UTF8 🤡🤡")]
-    InvalidUTF8TextField( #[from] Utf8Error )
-}
-impl actix_web::error::ResponseError for UploadError {
-    fn status_code(&self) -> StatusCode {
-        match *self {
-            UploadError::MaxSizeExceeded(_) => StatusCode::PAYLOAD_TOO_LARGE,
-            UploadError::NotFile => StatusCode::BAD_REQUEST,
-            UploadError::UnknownField(_) => StatusCode::BAD_REQUEST,
-            UploadError::EmptyTextField(_) => StatusCode::BAD_REQUEST,
-            UploadError::InvalidUTF8TextField(_) => StatusCode::BAD_REQUEST,
-            _ => StatusCode::INTERNAL_SERVER_ERROR
-        }
-    }
-}
-
-struct AscendingUpload {
-    temp_upload: TempUpload,
-    global_id: i32,
-    transaction: Transaction<'static, Postgres>
-}
-impl AscendingUpload {
-    async fn ascend(mut self) -> Result<(), sqlx::Error> {
-        let temp_path = self.temp_upload.path();
-        let global_path = fs::rename(temp_path, format!("uploads/{}.{}", self.global_id, self.temp_upload.extension)).await?;
-        self.transaction.commit().await?;
-        self.temp_upload.cleaned = true;
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone)]
-struct TempUpload{
-    local_id: usize,
-    extension: String,
-    original_filename: String,
-    size: usize,
-    cleaned: bool
-}
-
-impl Drop for TempUpload {
-    fn drop(&mut self) {
-        if self.cleaned { return }
-        
-        let temp_path=format!("uploads/temp/{}.{}", self.local_id, self.extension);
-        warn!("Synchronously removing '{}'!!! (Synch IO harms concurrency!!!)", temp_path);
-
-        // Not neccessary to remove file, as it is temporary
-        remove_file_sync(&temp_path).unwrap_or_else(|e| 
-            warn!("Failed to delete TempUpload file, after error, at: {} -- It should be cleaned up on restart tho.\nReason: {:?}", temp_path, e)
-        );
-    }
-}
-
-impl TempUpload {
-    fn move_responsibility (&mut self) -> Self {
-        let c = self.clone();
-        self.cleaned = true;
-        return c;
-    }
-
-    fn path(&self) -> String { 
-        format!("uploads/temp/{}.{}", self.local_id, self.extension)
-    }
-
-    async fn clean(&mut self) {
-        if self.cleaned { return }
-        
-        let temp_path=self.path();
-
-        // Not neccessary to remove file, as it is temporary
-        fs::remove_file(&temp_path).await.unwrap_or_else(|e| 
-            warn!("Failed to delete TempUpload file, after error, at: {} -- It should be cleaned up on restart tho.\nReason: {:?}", temp_path, e)
-        );
-        self.cleaned = true; // dont try again in destructor, even if it failed
-    }
-
-    async fn into_db(self) -> Result<AscendingUpload, sqlx::Error> {
-        let db = DB_POOL.get().await;
-        let mut transaction = db.begin().await?;
-
-        let global_id = sqlx::query_scalar!("INSERT INTO uploads (extension, original_filename, size_kb) VALUES ($1, $2, $3) RETURNING id;", 
-            self.extension, self.original_filename, (self.size/1000) as i32
-        ).fetch_one(&mut transaction).await?;
-
-        Ok(AscendingUpload { 
-            temp_upload: self, 
-            global_id,
-            transaction,
-        })
-    }
-
-    async fn from_multipart_field(field: actix_multipart::Field, max_size: usize) -> Result<Self, UploadError> {
-        let cd = field.content_disposition();
-
-        let local_id = TEMP_UPLOAD_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let original_filename = cd.get_filename().ok_or(UploadError::NotFile)?.to_owned();
-        let extension = original_filename.split(".").last().unwrap_or("").to_owned();
-
-        let temp_path=format!("uploads/temp/{}.{}", local_id, extension);
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(temp_path.to_owned()).await?;
-
-        // write remaining shit to file
-        let size: usize = match write_field_to_file(field, &mut file, max_size).await {
-            Ok(o) => o,
-            Err(e) => {
-                let _ = file.shutdown().await;
-                drop(file); // did the shutdown fail? too bad! we're gonna get rid of the file handle anyway (shouldn't matter too much honestly)
-
-                // Not neccessary to remove file, as it is temporary
-                fs::remove_file(&temp_path).await.unwrap_or_else(|e| 
-                    warn!("Failed to delete TempUpload file, after error, at: {} -- It should be cleaned up on restart tho.\nReason: {:?}", temp_path, e)
-                );
-                return Err(e);
-            }
-        };
-
-        Ok(TempUpload {
-            local_id,
-            extension, 
-            original_filename, 
-            size,
-            cleaned: false
-        })
-    }
-}
-
-async fn write_field_to_file(mut field: actix_multipart::Field, file: &mut tokio::fs::File, max_size: usize) -> Result<usize, UploadError> {
-    let mut size: usize = 0;
-    while let Some(chunk) = field.next().await {
-        let chunk = chunk?;
-        size += chunk.len();
-        if size > max_size /* 40mb */ {
-            return Err( UploadError::MaxSizeExceeded(max_size) );
-        }
-
-        file.write_all(&chunk).await?;
-    }
-    file.flush().await?;
-
-    Ok(size)
-}
+use crate::file_uploads::{multipart_parse, AscendingUpload, TempUpload};
 
 // ================================================================================== ROUTES ==================================================================================
 #[get("/me")]
@@ -189,84 +16,185 @@ async fn get_user_me(mut identity: Identity) -> impl Responder {
         .json(identity)
 }
 
-
-async fn multipart_parse<const NR_STRS: usize, const NR_FILES: usize>(mut payload: Multipart, string_fields: [&str;NR_STRS], file_fields: [&str;NR_FILES]) 
-    -> Result<( [Option<String>;NR_STRS], [Option<TempUpload>;NR_FILES] ) , UploadError> 
-{
-    let mut strings: [Option<String>;NR_STRS] = array![None; NR_STRS];
-    let mut files: [Option<TempUpload>;NR_FILES] = array![None; NR_FILES];
-
-    while let Some(item) = payload.next().await {
-        let mut field = item?;
-        //trace!("Field: {:?}", field);
-
-        if let Some(pos) = string_fields.iter().position(|&s| s == field.name()) {
-            if let Some(chunk) = field.next().await {
-                let cchunk = &chunk?;
-                let string = std::str::from_utf8(cchunk)?;
-                strings[pos] = Some(string.to_string());
-            } else {
-                return Err( UploadError::EmptyTextField(field.name().to_string()) )
-            }
-        } else if let Some(pos) = file_fields.iter().position(|&s| s == field.name()) {
-            let cd = field.content_disposition();
-            let mut valid_file = false;
-            if cd.is_form_data() {
-                if let Some(_) = cd.get_filename() {
-                    valid_file = true;
-                    let temp_upload = TempUpload::from_multipart_field(field, 40000000).await?;
-                    files[pos] = Some(temp_upload);
-                }
-            }
-            if !valid_file {
-                return Err( UploadError::NotFile );
-            }
-        } else {
-            return Err( UploadError::UnknownField(field.name().to_string()) );
-        }
-    }
-
-    Ok(( strings, files ))
-}
-
-
 #[put("/me")]
-async fn put_user_me(identity: Identity, mut payload: Multipart) -> Result<&'static str, Error> {
-    // iterate over multipart stream
-    #[derive(Serialize)]
-    struct ResJson {
-        name: bool,
-        bio: bool,
-        username: bool,
-        profile_pic: bool
-    }
+async fn put_user_me(identity: Identity, payload: Multipart) -> Result<impl Responder, Error> {
 
+    #[derive(Serialize, Default)]
+    struct ResJson {
+        name: Option<String>,
+        bio: Option<String>,
+        username: Option<String>,
+        profile_pic: Option<Upload>
+    }
+    let mut res_json = ResJson {
+        ..Default::default()
+    };
+
+    // Get Multipart Fields
     let mut lmaobozo = multipart_parse(payload, ["name", "bio", "username"], ["profile_pic"]).await?;
     trace!("Bozo fields: {:?}", lmaobozo);
 
     if let Some(profile_picf) = &mut lmaobozo.1[0] {
-        let profile_picf = profile_picf.move_responsibility();
-        let mut ascending = profile_picf.into_db().await.unwrap();
-        let rows_affected = sqlx::query!("UPDATE users SET profile_pic = $1 WHERE id = $2", ascending.global_id, identity.id)
-            .execute(&mut ascending.transaction).await.unwrap();
-        ascending.ascend().await.unwrap();
+        let new_upl = change_upload!("users", "profile_pic", i32)(profile_picf.move_responsibility(), identity.id).await;
+        if let Ok (new_upl) = new_upl  {
+            res_json.profile_pic = Some(new_upl);
+        } else {
+            warn!("Couldn't change upload :(");
+        }
+    }
+    if let Some(name) = &lmaobozo.0[0] {
+        let res = sqlx::query!("UPDATE users SET name=$1 WHERE id=$2", name, identity.id)
+            .execute(DB_POOL.get().await).await;
+        if let Ok(_res) = res {
+            res_json.name = Some(name.to_owned());
+        }
+    }
+    if let Some(bio) = &lmaobozo.0[1] {
+        let res = sqlx::query!("UPDATE users SET bio=$1 WHERE id=$2", bio, identity.id)
+            .execute(DB_POOL.get().await).await;
+        if let Ok(_res) = res {
+            res_json.bio = Some(bio.to_owned());
+        }
+    }
+    if let Some(username) = &lmaobozo.0[2] {
+        let res = sqlx::query!("UPDATE users SET username=$1 WHERE id=$2", username, identity.id)
+            .execute(DB_POOL.get().await).await;
+        if let Ok(_res) = res {
+            res_json.username = Some(username.to_owned());
+        }
     }
     
-    Ok("Success!!")
+    Ok(HttpResponse::Ok()
+        .json(res_json))
 }
 
 // user_change_password, user_revoke_tokens
 
+#[derive(Serialize)]
+struct WG {
+    id : i32,
+    url: String,
+
+    name: String,
+    description: String,
+
+    profile_pic: Option<DBRetrUpload>,
+    header_pic: Option<DBRetrUpload>
+}
+
+#[derive(Serialize)]
+struct User {
+    id : i32,
+    username: String,
+
+    name: String,
+    bio: String,
+
+    profile_pic: Option<DBRetrUpload>,
+}
+
 #[get("/my_wg")]
-async fn get_wg(identity: Identity) -> impl Responder {
-    todo!();
-    ""
+async fn get_wg(identity: Identity) -> Result<impl Responder, Error> {
+    let wgopt =
+    if let Some(wg_id)  = identity.wg {
+        //let wg = sqlx::query_as!(WG, "SELECT * FROM wgs WHERE id = $1", wg_id)
+        let wg : WG = sqlx::query_as!(WG, r#"SELECT wgs.id, url, name, description, 
+        (pp.id, pp.extension, pp.original_filename, pp.size_kb) as "profile_pic: DBRetrUpload",
+        (hp.id, hp.extension, hp.original_filename, hp.size_kb) as "header_pic: DBRetrUpload"
+    FROM wgs 
+    LEFT JOIN uploads AS pp ON profile_pic = pp.id
+    LEFT JOIN uploads AS hp ON header_pic = hp.id
+    WHERE wgs.id = $1"#, wg_id)
+            .fetch_one(DB_POOL.get().await).await.map_err(|e| {error!("AHH: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+        Some(wg)
+    } else {
+        None
+    };
+    
+    Ok( HttpResponse::Ok()
+    .json(wgopt) )
 }
 
 #[put("/my_wg")]
-async fn put_wg(identity: Identity) -> impl Responder {
-    todo!();
-    ""
+async fn put_wg(identity: Identity, payload: Multipart) -> Result<impl Responder, Error> {
+    let wg_id = identity.wg.ok_or_else(|| res_error::<&'static str>(StatusCode::FORBIDDEN, None, "You are not assigned to a WG, and therefore can't edit yours.") )?;
+
+    #[derive(Serialize, Default)]
+    struct ResJson {
+        name: Option<String>,
+        url: Option<String>,
+        description: Option<String>,
+        profile_pic: Option<Upload>,
+        header_pic: Option<Upload>
+    }
+    let mut res_json = ResJson {
+        ..Default::default()
+    };
+
+    // Get Multipart Fields
+    let mut lmaobozo = multipart_parse(payload, ["name", "url", "description"], ["profile_pic", "header_pic"]).await?;
+    trace!("Bozo fields: {:?}", lmaobozo);
+
+    if let Some(profile_picf) = &mut lmaobozo.1[0] {
+        let new_upl = change_upload!("wgs", "profile_pic", i32)(profile_picf.move_responsibility(), wg_id).await;
+        if let Ok (new_upl) = new_upl  {
+            res_json.profile_pic = Some(new_upl);
+        } else {
+            warn!("Couldn't change upload :(");
+        }
+    }
+    if let Some(header_picf) = &mut lmaobozo.1[1] {
+        let new_upl = change_upload!("wgs", "header_pic", i32)(header_picf.move_responsibility(), wg_id).await;
+        if let Ok (new_upl) = new_upl  {
+            res_json.header_pic = Some(new_upl);
+        } else {
+            warn!("Couldn't change upload :(");
+        }
+    }
+    if let Some(name) = &lmaobozo.0[0] {
+        let res = sqlx::query!("UPDATE wgs SET name=$1 WHERE id=$2", name, wg_id)
+            .execute(DB_POOL.get().await).await;
+        if let Ok(_res) = res {
+            res_json.name = Some(name.to_owned());
+        }
+    }
+    if let Some(url) = &lmaobozo.0[1] {
+        let res = sqlx::query!("UPDATE wgs SET url=$1 WHERE id=$2", url, wg_id)
+            .execute(DB_POOL.get().await).await;
+        if let Ok(_res) = res {
+            res_json.url = Some(url.to_owned());
+        }
+    }
+    if let Some(description) = &lmaobozo.0[2] {
+        let res = sqlx::query!("UPDATE wgs SET description=$1 WHERE id=$2", description, wg_id)
+            .execute(DB_POOL.get().await).await;
+        if let Ok(_res) = res {
+            res_json.description = Some(description.to_owned());
+        }
+    }
+    
+    Ok(HttpResponse::Ok()
+        .json(res_json))
+}
+
+#[get("/my_wg/users")]
+async fn get_wg_users(identity: Identity) -> Result<impl Responder, Error>  {
+    let wgopt =
+    if let Some(wg_id)  = identity.wg {
+        //let wg = sqlx::query_as!(WG, "SELECT * FROM wgs WHERE id = $1", wg_id)
+        let wg : Vec<User> = sqlx::query_as!(User, r#"SELECT users.id, name, bio, username, 
+        (pp.id, pp.extension, pp.original_filename, pp.size_kb) as "profile_pic: DBRetrUpload"
+    FROM users 
+    LEFT JOIN uploads AS pp ON profile_pic = pp.id
+    WHERE users.wg = $1"#, wg_id)
+            .fetch_all(DB_POOL.get().await).await.map_err(|e| {error!("AHH: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+        Some(wg)
+    } else {
+        None
+    };
+    
+    Ok( HttpResponse::Ok()
+    .json(wgopt) )
 }
 
 #[get("/my_wg/costs")]
@@ -314,6 +242,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             .service(put_user_me)
             .service(get_wg)
             .service(put_wg)
+            .service(get_wg_users)
             .service(get_wg_costs)
             .service(post_wg_costs)
             .service(get_wg_costs_id)
