@@ -1,5 +1,5 @@
 use actix_multipart::Multipart;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use thiserror::Error as ThisErrorError;
 use array_macro::array;
 use futures_util::{StreamExt};
@@ -50,7 +50,7 @@ impl actix_web::error::ResponseError for UploadError {
     }
 }
 
-#[derive(sqlx::Type, Serialize)]
+#[derive(sqlx::Type, Serialize, Deserialize)]
 pub struct DBRetrUpload {
     id: Option<i32>, 
     extension: Option<String>, 
