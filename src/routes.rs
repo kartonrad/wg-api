@@ -44,16 +44,23 @@ struct Cost {
     added_on: time::OffsetDateTime,
 
     receit: Option<DBRetrUpload>,
-    my_share: Option<CostShare>,
+    my_share: Option<DBCostShare>,
     nr_shares: Option<i64>,
     nr_unpaid_shares:  Option<i64>
 }
 
 #[derive(sqlx::Type, Serialize, Deserialize)]
-pub struct CostShare {
+pub struct DBCostShare {
     cost_id: Option<i32>, 
     debtor_id: Option<i32>,
     paid: Option<bool>
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct CostShare {
+    cost_id: i32, 
+    debtor_id: i32,
+    paid: bool
 }
 
 #[derive(Serialize, Deserialize)]
@@ -252,7 +259,7 @@ async fn get_wg_costs(identity: Identity) -> Result<impl Responder, Error> {
     if let Some(wg_id)  = identity.wg {
         let cost = sqlx::query_as!(Cost, r#"
         SELECT costs.id, wg_id, name, amount, creditor_id, (pp.id, pp.extension, pp.original_filename, pp.size_kb) as "receit: DBRetrUpload",
-            added_on, ROW(my_share.cost_id, my_share.debtor_id, my_share.paid) as "my_share: CostShare",
+            added_on, ROW(my_share.cost_id, my_share.debtor_id, my_share.paid) as "my_share: DBCostShare",
             count(*) as nr_shares, sum( CASE WHEN shares.paid = false AND shares.debtor_id != creditor_id THEN 1 ELSE 0 END ) as nr_unpaid_shares       
         FROM costs
         LEFT JOIN cost_shares as shares ON costs.id = shares.cost_id -- multiple per row
@@ -305,8 +312,21 @@ async fn post_wg_costs(identity: Identity, new_cost: web::Json<CostParameter>) -
 }
 
 #[get("/my_wg/costs/{id}/shares")]
-async fn get_wg_costs_id(identity: Identity) -> Result<impl Responder, Error> {
-    
+async fn get_wg_costs_id(identity: Identity, params: web::Path<(i32,)>) -> Result<impl Responder, Error> {
+    let shares_opt =
+    if let Some(wg_id)  = identity.wg {
+        let shares = sqlx::query_as!(CostShare, "SELECT cost_id, debtor_id, paid 
+        FROM cost_shares LEFT JOIN costs ON cost_id = costs.id
+        WHERE cost_id=$1 AND costs.wg_id = $2", params.0, wg_id)
+            .fetch_all(DB_POOL.get().await).await.map_err(|e| {error!("AHH: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+
+        Some(shares)
+    } else {
+        None
+    };
+
+    Ok( HttpResponse::Ok()
+    .json(shares_opt) )
 }
 
 #[put("/my_wg/costs/{id}")]
