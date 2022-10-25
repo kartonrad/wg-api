@@ -6,6 +6,7 @@ CREATE TABLE uploads (
     extension VARCHAR(5) NOT NULL,
     original_filename VARCHAR(200),
     size_kb int NOT NULL,
+    access_only_by_wg int,
     CHECK( size_kb > 0 )
 );
 
@@ -22,6 +23,9 @@ CREATE TABLE wgs (
     header_pic int REFERENCES uploads(id) UNIQUE
 );
 
+alter table uploads
+  ADD FOREIGN KEY (access_only_by_wg)
+  references wgs (id);
 
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
