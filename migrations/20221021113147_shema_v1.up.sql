@@ -45,7 +45,8 @@ CREATE TABLE users (
 CREATE TABLE equal_balances (
     id SERIAL PRIMARY KEY,
     balanced_on timestamp with time zone NOT NULL,
-    initiator_id int REFERENCES users(id) NOT NULL
+    initiator_id int REFERENCES users(id) NOT NULL,
+    wg_id int REFERENCES wgs(id) NOT NULL
 );
 
 CREATE TABLE costs (
