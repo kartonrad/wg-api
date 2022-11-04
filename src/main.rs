@@ -18,6 +18,8 @@ use actix_web::{App, HttpServer, Responder, get, middleware::Logger};
 use sqlx::{postgres::{PgPool, PgPoolOptions}};
 use lazy_static::lazy_static;
 use async_once::AsyncOnce;
+use actix_files;
+use actix_cors::Cors;
 
 /* 
 use time::{OffsetDateTime, UtcOffset};
@@ -75,11 +77,14 @@ async fn main() -> Result<(),std::io::Error> {
     // Setup Server
     let mut server = HttpServer::new( || {
         App::new()
+            .wrap(Cors::permissive())
             .wrap(Logger::new(r#"[%a] "%r" %s %bb "%{Referer}i" "%{User-Agent}i" %Dms"#))
             .configure(auth::config)
             .configure(embedded_asset_serve::config)
             .configure(routes::config)
             .service(genesis)
+            //.service(actix_files::Files::new("/uploads", "uploads").show_files_listing())
+            .service(file_uploads::get_uploads_service)
     } );
 
     // take over socket from old process, if available

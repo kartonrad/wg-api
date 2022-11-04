@@ -81,7 +81,7 @@ impl Into<SerdeIdentity> for Identity {
 }
 
 
-pub struct TryIdentity(Option<Identity>);
+pub struct TryIdentity(pub Option<Identity>);
 pub struct MaybeIdentity(Result<Identity, actix_web::Error>);
 
 #[derive(ThisErrorError, Debug)]

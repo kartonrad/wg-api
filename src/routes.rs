@@ -2,6 +2,7 @@ use actix_multipart::Multipart;
 use actix_web::{ HttpResponse, Responder, get, put, delete, post, http::StatusCode, dev::{ConnectionInfo}, web, Error,};
 use rust_decimal::Decimal;
 use serde::{Serialize, Deserialize};
+use time::OffsetDateTime;
 use crate::{DB_POOL, change_upload, auth::res_error, file_uploads::{Upload, DBRetrUpload}};
 
 use super::auth::Identity;
@@ -92,6 +93,39 @@ struct WhichEqualBalance {
     balance: Option<i32>
 }
 
+#[derive(Serialize, Deserialize)]
+struct Balance {
+    id: i32,
+    #[serde(with= "time::serde::rfc3339")]
+    balanced_on: OffsetDateTime,
+    initiator_id: i32,
+    wg_id: i32,
+    total_unified_spending: Option<Decimal>,
+    i_paid: Option<Decimal>,
+    i_recieved: Option<Decimal>,
+    my_total_spending: Option<Decimal>
+}
+
+#[derive(Serialize, Deserialize)]
+struct SpendingInTime {
+    time_bucket: Option<OffsetDateTime>,
+    total_unified_spending: Option<Decimal>,
+    i_paid: Option<Decimal>,
+    i_recieved: Option<Decimal>,
+    my_total_spending: Option<Decimal>
+}
+
+#[derive(Serialize, Deserialize)]
+struct SpendingInTimeSer {
+    #[serde(with= "time::serde::rfc3339")]
+    time_bucket: OffsetDateTime,
+    year: i32, week: u8, month: u8,
+    total_unified_spending: Decimal,
+    i_paid: Decimal,
+    i_recieved: Decimal,
+    my_total_spending: Decimal
+}
+
 // ================================================================================== ROUTES ==================================================================================
 #[get("/me")]
 async fn get_user_me(mut identity: Identity) -> impl Responder {
@@ -120,7 +154,7 @@ async fn put_user_me(identity: Identity, payload: Multipart) -> Result<impl Resp
     trace!("Bozo fields: {:?}", lmaobozo);
 
     if let Some(profile_picf) = &mut lmaobozo.1[0] {
-        let new_upl = change_upload!("users", "profile_pic", i32)(profile_picf.move_responsibility(), identity.id).await;
+        let new_upl = change_upload!("users", "profile_pic", i32)(profile_picf.move_responsibility(), identity.id, None).await;
         if let Ok (new_upl) = new_upl  {
             res_json.profile_pic = Some(new_upl);
         } else {
@@ -177,6 +211,22 @@ async fn get_wg(identity: Identity) -> Result<impl Responder, Error> {
     .json(wgopt) )
 }
 
+#[get("/wg/{url}")]
+async fn get_wg_public(params: web::Path<(String,)>) -> Result<impl Responder, Error> {
+    //let wg = sqlx::query_as!(WG, "SELECT * FROM wgs WHERE id = $1", wg_id)
+    let wg : WG = sqlx::query_as!(WG, r#"SELECT wgs.id, url, name, description, 
+    (pp.id, pp.extension, pp.original_filename, pp.size_kb) as "profile_pic: DBRetrUpload",
+    (hp.id, hp.extension, hp.original_filename, hp.size_kb) as "header_pic: DBRetrUpload"
+FROM wgs 
+LEFT JOIN uploads AS pp ON profile_pic = pp.id
+LEFT JOIN uploads AS hp ON header_pic = hp.id
+WHERE wgs.url = $1"#, params.0)
+        .fetch_one(DB_POOL.get().await).await.map_err(|e| {error!("AHH: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+    
+    Ok( HttpResponse::Ok()
+    .json(wg) )
+}
+
 #[put("/my_wg")]
 async fn put_wg(identity: Identity, payload: Multipart) -> Result<impl Responder, Error> {
     let wg_id = identity.wg.ok_or_else(|| res_error::<&'static str>(StatusCode::FORBIDDEN, None, "You are not assigned to a WG, and therefore can't edit yours.") )?;
@@ -198,7 +248,7 @@ async fn put_wg(identity: Identity, payload: Multipart) -> Result<impl Responder
     trace!("Bozo fields: {:?}", lmaobozo);
 
     if let Some(profile_picf) = &mut lmaobozo.1[0] {
-        let new_upl = change_upload!("wgs", "profile_pic", i32)(profile_picf.move_responsibility(), wg_id).await;
+        let new_upl = change_upload!("wgs", "profile_pic", i32)(profile_picf.move_responsibility(), wg_id, None).await;
         if let Ok (new_upl) = new_upl  {
             res_json.profile_pic = Some(new_upl);
         } else {
@@ -206,7 +256,7 @@ async fn put_wg(identity: Identity, payload: Multipart) -> Result<impl Responder
         }
     }
     if let Some(header_picf) = &mut lmaobozo.1[1] {
-        let new_upl = change_upload!("wgs", "header_pic", i32)(header_picf.move_responsibility(), wg_id).await;
+        let new_upl = change_upload!("wgs", "header_pic", i32)(header_picf.move_responsibility(), wg_id, None).await;
         if let Ok (new_upl) = new_upl  {
             res_json.header_pic = Some(new_upl);
         } else {
@@ -259,6 +309,20 @@ async fn get_wg_users(identity: Identity) -> Result<impl Responder, Error>  {
     .json(wgopt) )
 }
 
+#[get("/wg/{id}/users")]
+async fn get_wg_users_public(params: web::Path<(i32,)>) -> Result<impl Responder, Error>  {
+        //let wg = sqlx::query_as!(WG, "SELECT * FROM wgs WHERE id = $1", wg_id)
+    let wg : Vec<User> = sqlx::query_as!(User, r#"SELECT users.id, name, bio, username, 
+        (pp.id, pp.extension, pp.original_filename, pp.size_kb) as "profile_pic: DBRetrUpload"
+    FROM users 
+    LEFT JOIN uploads AS pp ON profile_pic = pp.id
+    WHERE users.wg = $1"#, params.0)
+            .fetch_all(DB_POOL.get().await).await.map_err(|e| {error!("AHH: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+    
+    Ok( HttpResponse::Ok()
+    .json(wg) )
+}
+
 #[get("/my_wg/costs")]
 async fn get_wg_costs(identity: Identity, query: web::Query<WhichEqualBalance>) -> Result<impl Responder, Error> {
     let costs_opt =
@@ -272,7 +336,8 @@ async fn get_wg_costs(identity: Identity, query: web::Query<WhichEqualBalance>) 
         LEFT JOIN cost_shares as my_share ON costs.id = my_share.cost_id AND my_share.debtor_id = $1 -- guarranteed to be unique per row, as (cost_id, debtor_id) is PRIMARY
         LEFT JOIN uploads AS pp ON receit_id = pp.id
         WHERE wg_id = $2 AND coalesce(equal_balances, 0) = $3
-        GROUP BY costs.id, my_share.cost_id, my_share.debtor_id, my_share.paid, pp.id, pp.extension, pp.original_filename, pp.size_kb;"#, identity.id, wg_id, query.balance.unwrap_or(0))
+        GROUP BY costs.id, my_share.cost_id, my_share.debtor_id, my_share.paid, pp.id, pp.extension, pp.original_filename, pp.size_kb
+        ORDER BY added_on DESC;"#, identity.id, wg_id, query.balance.unwrap_or(0))
             .fetch_all(DB_POOL.get().await).await.map_err(|e| {error!("AHH: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
 
         Some(cost)
@@ -335,19 +400,52 @@ async fn get_wg_costs_id(identity: Identity, params: web::Path<(i32,)>) -> Resul
     .json(shares_opt) )
 }
 
-#[put("/my_wg/costs/{id}")]
-async fn put_wg_costs_id(identity: Identity) -> impl Responder {
-    todo!();
-    ""
+#[put("/my_wg/costs/{id}/receit")]
+async fn put_wg_costs_id_receit(identity: Identity, payload: Multipart, params: web::Path<(i32,)>) -> Result<impl Responder, Error> {
+    
+    let id: i32 = sqlx::query_scalar!("SELECT creditor_id FROM costs WHERE id=$1", params.0).fetch_one(DB_POOL.get().await).await
+        .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+    
+    if identity.id != id {
+        return Ok(HttpResponse::Forbidden().body("Lmao nah you didn't originally post this"));
+    }
+
+    let mut lmaobozo = multipart_parse(payload, [], ["receit"]).await?;
+    trace!("Bozo fields: {:?}", lmaobozo);
+
+    if let Some(receitf) = &mut lmaobozo.1[0] {
+        let new_upl = change_upload!("costs", "receit_id", i32)(receitf.move_responsibility(), params.0, identity.wg).await
+            .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+
+        return Ok(HttpResponse::Ok().body("Successfully changed receit"));
+    }
+
+    Ok(HttpResponse::BadRequest().body("Please provide a 'receit' field using multipart form data"))
 }
 
+/* 
 #[delete("/my_wg/costs/{id}")]
-async fn delete_wg_costs_id(identity: Identity) -> impl Responder {
-    todo!();
-    ""
-}
+async fn delete_wg_costs_id(identity: Identity, params: web::Path<(i32,)>) -> Result<impl Responder, Error> {
 
+    let cost: (i32, Option<i32>) = sqlx::query!("SELECT creditor_id, receit_id FROM costs WHERE id=$1", params.0).fetch_one(DB_POOL.get().await).await
+        .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+    
+    if identity.id != cost.0 {
+        return Ok(HttpResponse::Forbidden().body("Lmao nah you didn't originally post this"));
+    }
 
+    if let Some(formerupload_id) = cost.1 {
+        let formerupload = sqlx::query_as!(DBRetrUpload, "SELECT id, extension, original_filename, size_kb FROM uploads WHERE id=$1",formerupload_id)
+            .fetch_one(DB_POOL.get().await).await
+            .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+    }
+    
+
+    let query_res = sqlx::query!("DELETE CASCADE FROM costs WHERE id = $1", params.0).execute(DB_POOL.get().await).await
+        .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+    
+    return Ok(HttpResponse::Ok().body(query_res.rows_affected().to_string()));
+}*/
 
 #[get("/my_wg/costs/stats")]
 async fn get_wg_costs_stats(identity: Identity, query: web::Query<WhichEqualBalance>) -> Result<impl Responder, Error> {
@@ -400,6 +498,114 @@ async fn get_wg_costs_stats(identity: Identity, query: web::Query<WhichEqualBala
     .json(costs_opt) )
 }
 
+#[post("/my_wg/costs/balance")]
+async fn post_wg_costs_balance(identity: Identity) -> Result<impl Responder, Error> {
+    if let Some(wg_id)  = identity.wg {
+        let mut trx = DB_POOL.get().await.begin().await
+            .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;;
+
+        let id: i32 = sqlx::query_scalar!("INSERT INTO equal_balances (balanced_on, initiator_id, wg_id) VALUES ('NOW', $1, $2) RETURNING id", identity.id, wg_id).fetch_one(&mut trx).await
+            .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+
+        let result = sqlx::query!("UPDATE costs SET equal_balances=$1 WHERE equal_balances IS NULL AND wg_id=$2;", id, wg_id).execute(&mut trx).await
+            .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+        
+        trx.commit().await
+            .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+
+        return Ok(HttpResponse::Ok().body(result.rows_affected().to_string()));
+    }
+
+    Ok(HttpResponse::Forbidden().body("Need to be in a wg"))
+}
+
+
+#[get("/my_wg/costs/balance")]
+async fn get_wg_costs_balance(identity: Identity) -> Result<impl Responder, Error> {
+    let costs_opt =
+    if let Some(wg_id)  = identity.wg {
+        let balances = sqlx::query_as!(Balance, r#"
+        SELECT equal_balances.id, equal_balances.balanced_on, equal_balances.initiator_id, equal_balances.wg_id, 
+            coalesce( sum(costs.amount), 0) as total_unified_spending,
+            coalesce( sum( CASE WHEN costs.paid = false AND costs.debtor_id != costs.creditor_id THEN (costs.amount/costs.nr_shares)::NUMERIC(16,2) ELSE 0 END ), 0) as i_paid,
+            coalesce( sum( CASE WHEN creditor_id = $2 THEN (costs.amount/costs.nr_shares*costs.nr_unpaid_shares)::NUMERIC(16,2) ELSE 0 END ), 0) as i_recieved,
+            coalesce( sum( CASE WHEN costs.paid IS NOT NULL THEN (costs.amount/costs.nr_shares)::NUMERIC(16,2) ELSE 0 END ), 0) AS my_total_spending
+        FROM equal_balances
+        LEFT JOIN (
+            SELECT id, amount, creditor_id, added_on, equal_balances, my_share.paid, my_share.debtor_id,
+                count(*) as nr_shares, coalesce( sum( CASE WHEN shares.paid = false AND shares.debtor_id != creditor_id THEN 1 ELSE 0 END) , 0) as nr_unpaid_shares
+            FROM costs
+            LEFT JOIN cost_shares as shares ON costs.id = shares.cost_id -- multiple per row
+            LEFT JOIN cost_shares as my_share ON costs.id = my_share.cost_id AND my_share.debtor_id = $2 -- guarranteed to be unique per row, as (cost_id, debtor_id) is PRIMARY
+            WHERE wg_id = $1
+            GROUP BY costs.id, my_share.cost_id, my_share.paid, my_share.debtor_id
+        ) AS costs ON costs.equal_balances = equal_balances.id
+        WHERE wg_id = $1
+        GROUP BY equal_balances.id, equal_balances.balanced_on, equal_balances.initiator_id, equal_balances.wg_id
+        ORDER BY equal_balances.balanced_on DESC;"#,  wg_id, identity.id)
+            .fetch_all(DB_POOL.get().await).await.map_err(|e| {error!("AHH: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+
+        Some(balances)
+    } else {
+        None
+    };
+
+    Ok( HttpResponse::Ok()
+    .json(costs_opt) )
+}
+
+#[get("/my_wg/costs/over_time/{interval}")]
+async fn get_wg_costs_over_time(identity: Identity, params: web::Path<(String,)> ) -> Result<impl Responder, Error> {
+    let costs_opt =
+    if let Some(wg_id)  = identity.wg {
+        let balances = sqlx::query_as!(SpendingInTime, r#"
+        SELECT
+            date_trunc($3, added_on) as time_bucket ,
+            coalesce( sum(costs.amount), 0) as total_unified_spending,
+            coalesce( sum( CASE WHEN costs.paid = false AND costs.debtor_id != costs.creditor_id THEN (costs.amount/costs.nr_shares)::NUMERIC(16,2) ELSE 0 END ), 0) as i_paid,
+            coalesce( sum( CASE WHEN creditor_id = $2 THEN (costs.amount/costs.nr_shares*costs.nr_unpaid_shares)::NUMERIC(16,2) ELSE 0 END ), 0) as i_recieved,
+            coalesce( sum( CASE WHEN costs.paid IS NOT NULL THEN (costs.amount/costs.nr_shares)::NUMERIC(16,2) ELSE 0 END ), 0) AS my_total_spending
+        FROM (
+            SELECT id, amount, creditor_id, added_on, equal_balances, my_share.paid, my_share.debtor_id,
+                count(*) as nr_shares, coalesce( sum( CASE WHEN shares.paid = false AND shares.debtor_id != creditor_id THEN 1 ELSE 0 END) , 0) as nr_unpaid_shares
+            FROM costs
+            LEFT JOIN cost_shares as shares ON costs.id = shares.cost_id -- multiple per row
+            LEFT JOIN cost_shares as my_share ON costs.id = my_share.cost_id AND my_share.debtor_id = $2 -- guarranteed to be unique per row, as (cost_id, debtor_id) is PRIMARY
+            WHERE wg_id = $1
+            GROUP BY costs.id, my_share.cost_id, my_share.paid, my_share.debtor_id
+        ) AS costs
+        GROUP BY time_bucket ORDER BY time_bucket DESC;"#,  wg_id, identity.id, params.0)
+            .fetch_all(DB_POOL.get().await).await.map_err(|e| {error!("AHH: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+
+        let balances_clean: Vec<SpendingInTimeSer> = balances.iter().filter_map( |item| {
+            //let lmao = item.i_paid.zip(item.i_recieved).zip(item.my_total_spending).zip(item.total_unified_spending).zip(item.time_bucket);
+            if let Some(time) = item.time_bucket {
+                //let time = zipped.1;
+
+                let cleaned = SpendingInTimeSer {
+                    i_paid: item.i_paid.unwrap_or(Decimal::from(0)), //zipped.0.0.0.0,
+                    i_recieved: item.i_recieved.unwrap_or(Decimal::from(0)),//zipped.0.0.0.1,
+                    my_total_spending: item.my_total_spending.unwrap_or(Decimal::from(0)),//zipped.0.0.1,
+                    total_unified_spending: item.total_unified_spending.unwrap_or(Decimal::from(0)), //zipped.0.1,
+                    time_bucket: time,
+                    week: time.iso_week(),
+                    month: time.month() as u8,
+                    year: time.year()
+                };
+                Some(cleaned)
+            } else {
+                None
+            }
+        }).collect();
+
+        Some(balances_clean)
+    } else {
+        None
+    };
+
+    Ok( HttpResponse::Ok()
+    .json(costs_opt) )
+}
 
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(
@@ -408,17 +614,23 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             .service(get_user_me)
             .service(put_user_me)
             .service(get_wg)
+            .service(get_wg_public)
             .service(put_wg)
             .service(get_wg_users)
+            .service(get_wg_users_public)
             .service(get_wg_costs)
             .service(post_wg_costs)
             .service(get_wg_costs_stats)
 
             .service(get_wg_costs_id)
-            .service(put_wg_costs_id)
-            .service(delete_wg_costs_id)
+            .service(put_wg_costs_id_receit)
+            //.service(delete_wg_costs_id)
 
-    );
+            .service(post_wg_costs_balance)
+            .service(get_wg_costs_balance)
+
+            .service(get_wg_costs_over_time)
+    );  
 }
 
 /*

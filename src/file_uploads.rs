@@ -1,12 +1,13 @@
+use actix_files::NamedFile;
 use actix_multipart::Multipart;
 use serde::{Serialize, Deserialize};
 use thiserror::Error as ThisErrorError;
 use array_macro::array;
 use futures_util::{StreamExt};
-use crate::DB_POOL;
+use crate::{DB_POOL, auth::{res_error, TryIdentity}};
 
 
-use actix_web::http::StatusCode;
+use actix_web::{http::StatusCode, get};
 use sqlx::{Transaction, Postgres};
 use tokio::{fs::{OpenOptions,self}, io::AsyncWriteExt};
 use std::fs::remove_file as remove_file_sync;
@@ -17,6 +18,35 @@ use std::{
 // ================================================================================== CONSTS/STATICS ==================================================================================
 
 static TEMP_UPLOAD_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+// ================================================================================== ROUTES ==================================================================================
+
+#[get("/uploads/{name}")]
+pub async fn get_uploads_service( try_identity: TryIdentity, path: actix_web::web::Path<(String,)> ) -> Result<NamedFile, actix_web::Error> {
+
+    let filename = path.0.split(".").next().ok_or(res_error::<String>(StatusCode::UNPROCESSABLE_ENTITY, None, "??? Bozo enter real filename"))?;
+    let filename_int = filename.parse::<i32>().map_err(|e| res_error(StatusCode::UNPROCESSABLE_ENTITY, Some(e), "??? Bozo filename needs to be number and extension"))?;
+
+    let access_by_wg: Option<i32> = sqlx::query_scalar!("SELECT access_only_by_wg FROM uploads WHERE id=$1;", filename_int)
+        .fetch_one(DB_POOL.get().await).await.map_err(|e| res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "??? Database glitched/ didn't find your shit"))?;
+    
+    if let Some(req_wg) = access_by_wg {
+        let error = res_error::<String>(StatusCode::FORBIDDEN, None, "YOu need to be in a specific WG to view this upload");
+        if let Some(identity) = try_identity.0 {
+            if let Some(wg_id) = identity.wg {
+                if wg_id != req_wg {
+                    return Err(error)
+                }
+            } else {
+                return Err(error)
+            }
+        } else {
+            return Err(error)
+        }
+    }
+
+    Ok(NamedFile::open( format!("uploads/{}", path.0) )?)
+}
 
 // ================================================================================== STATE MODEL ==================================================================================
 
@@ -132,13 +162,18 @@ impl TempUpload {
         self.cleaned = true; // dont try again in destructor, even if it failed
     }
 
-    pub async fn into_db(self) -> Result<AscendingUpload, sqlx::Error> {
+    pub async fn into_db(self, scope_to_wg: Option<i32>) -> Result<AscendingUpload, sqlx::Error> {
         let db = DB_POOL.get().await;
         let mut transaction = db.begin().await?;
 
-        let global_id = sqlx::query_scalar!("INSERT INTO uploads (extension, original_filename, size_kb) VALUES ($1, $2, $3) RETURNING id;", 
-            self.extension, self.original_filename, (self.size/1000) as i32
-        ).fetch_one(&mut transaction).await?;
+        let global_id: i32 = match (scope_to_wg) {
+            Some(wg_id) => {
+                sqlx::query_scalar!("INSERT INTO uploads (extension, original_filename, size_kb, access_only_by_wg) VALUES ($1, $2, $3, $4) RETURNING id;", 
+                    self.extension, self.original_filename, (self.size/1000) as i32, wg_id)
+            },
+            None => sqlx::query_scalar!("INSERT INTO uploads (extension, original_filename, size_kb) VALUES ($1, $2, $3) RETURNING id;", 
+                self.extension, self.original_filename, (self.size/1000) as i32,)
+        }.fetch_one(&mut transaction).await?;
 
         Ok(AscendingUpload { 
             temp_upload: self, 
@@ -242,6 +277,8 @@ pub async fn multipart_parse<const NR_STRS: usize, const NR_FILES: usize>(mut pa
 }
 
 
+
+
 /**
  * BEHOLD!
  * The most cursed Macro in existence!!
@@ -258,10 +295,10 @@ macro_rules! change_upload {
         use sqlx::postgres::PgArguments;
         use crate::file_uploads::Upload;
         use sqlx::Arguments;
-        |temp: TempUpload, row_id: $t| -> LocalBoxFuture<'static, Result<Upload, sqlx::Error>> {
+        |temp: TempUpload, row_id: $t, scope_to_wg: Option<i32>| -> LocalBoxFuture<'static, Result<Upload, sqlx::Error>> {
             let row_id = row_id.to_owned();
             async move {
-                let mut ascending = temp.into_db().await?;
+                let mut ascending = temp.into_db(scope_to_wg).await?;
 
                 let mut select_args = PgArguments::default();
                 select_args.add(row_id);

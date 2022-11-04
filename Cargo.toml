@@ -8,6 +8,8 @@ authors = ["Kartonrad <hi@kartonrad.de>"]
 
 [dependencies]
 actix-web = "4.2.1"
+actix-files = "0.6.2"
+actix-cors = "0.6.3"
 tokio =  { version = "1.21.2", features = ["fs"] }
 actix-multipart = "0.4.0"
 rust-embed = "6.4.2"
