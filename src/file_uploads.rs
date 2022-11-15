@@ -166,13 +166,19 @@ impl TempUpload {
         let db = DB_POOL.get().await;
         let mut transaction = db.begin().await?;
 
-        let global_id: i32 = match (scope_to_wg) {
+        // IGNORE long filenames, we don't need them
+        let mut original_filename = self.original_filename.clone();
+        if self.original_filename.len() > 200 {
+            original_filename = format!("name_to_long_lmao.{}", self.extension);
+        }
+
+        let global_id: i32 = match scope_to_wg {
             Some(wg_id) => {
                 sqlx::query_scalar!("INSERT INTO uploads (extension, original_filename, size_kb, access_only_by_wg) VALUES ($1, $2, $3, $4) RETURNING id;", 
-                    self.extension, self.original_filename, (self.size/1000) as i32, wg_id)
+                    self.extension, original_filename, (self.size/1000) as i32, wg_id)
             },
             None => sqlx::query_scalar!("INSERT INTO uploads (extension, original_filename, size_kb) VALUES ($1, $2, $3) RETURNING id;", 
-                self.extension, self.original_filename, (self.size/1000) as i32,)
+                self.extension, original_filename, (self.size/1000) as i32,)
         }.fetch_one(&mut transaction).await?;
 
         Ok(AscendingUpload { 
