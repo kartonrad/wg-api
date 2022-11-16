@@ -18,7 +18,6 @@ use actix_web::{App, HttpServer, Responder, get, middleware::Logger};
 use sqlx::{postgres::{PgPool, PgPoolOptions}};
 use lazy_static::lazy_static;
 use async_once::AsyncOnce;
-use actix_files;
 use actix_cors::Cors;
 
 /* 

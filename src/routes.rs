@@ -1,5 +1,5 @@
 use actix_multipart::Multipart;
-use actix_web::{ HttpResponse, Responder, get, put, delete, post, http::StatusCode, dev::{ConnectionInfo}, web, Error,};
+use actix_web::{ HttpResponse, Responder, get, put, post, http::StatusCode, web, Error,};
 use rust_decimal::Decimal;
 use serde::{Serialize, Deserialize};
 use time::OffsetDateTime;
@@ -7,7 +7,7 @@ use crate::{DB_POOL, change_upload, auth::res_error, file_uploads::{Upload, DBRe
 
 use super::auth::Identity;
 
-use crate::file_uploads::{multipart_parse, AscendingUpload, TempUpload};
+use crate::file_uploads::{multipart_parse, TempUpload};
 
 // ================================================================================== STATE MODEL ==================================================================================
 
@@ -417,7 +417,7 @@ async fn put_wg_costs_id_receit(identity: Identity, payload: Multipart, params: 
         let new_upl = change_upload!("costs", "receit_id", i32)(receitf.move_responsibility(), params.0, identity.wg).await
             .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
 
-        return Ok(HttpResponse::Ok().body("Successfully changed receit"));
+        return Ok(HttpResponse::Ok().body( format!("Successfully changed receit\n{:?}", new_upl) ));
     }
 
     Ok(HttpResponse::BadRequest().body("Please provide a 'receit' field using multipart form data"))
@@ -502,7 +502,7 @@ async fn get_wg_costs_stats(identity: Identity, query: web::Query<WhichEqualBala
 async fn post_wg_costs_balance(identity: Identity) -> Result<impl Responder, Error> {
     if let Some(wg_id)  = identity.wg {
         let mut trx = DB_POOL.get().await.begin().await
-            .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;;
+            .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
 
         let id: i32 = sqlx::query_scalar!("INSERT INTO equal_balances (balanced_on, initiator_id, wg_id) VALUES ('NOW', $1, $2) RETURNING id", identity.id, wg_id).fetch_one(&mut trx).await
             .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
