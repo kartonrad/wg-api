@@ -3,7 +3,7 @@ use actix_web::{ HttpResponse, Responder, get, put, post, http::StatusCode, web,
 use rust_decimal::Decimal;
 use serde::{Serialize, Deserialize};
 use time::OffsetDateTime;
-use crate::{DB_POOL, change_upload, auth::res_error, file_uploads::{Upload, DBRetrUpload}};
+use crate::{DB_POOL, change_upload, auth::{res_error, WGMemberIdentity}, file_uploads::{Upload, DBRetrUpload}};
 
 use super::auth::Identity;
 
@@ -228,8 +228,7 @@ WHERE wgs.url = $1"#, params.0)
 }
 
 #[put("/my_wg")]
-async fn put_wg(identity: Identity, payload: Multipart) -> Result<impl Responder, Error> {
-    let wg_id = identity.wg.ok_or_else(|| res_error::<&'static str>(StatusCode::FORBIDDEN, None, "You are not assigned to a WG, and therefore can't edit yours.") )?;
+async fn put_wg(WGMemberIdentity{identity, wg_id} : WGMemberIdentity, payload: Multipart) -> Result<impl Responder, Error> {
 
     #[derive(Serialize, Default)]
     struct ResJson {
@@ -350,9 +349,7 @@ async fn get_wg_costs(identity: Identity, query: web::Query<WhichEqualBalance>) 
 }
 
 #[post("/my_wg/costs")]
-async fn post_wg_costs(identity: Identity, new_cost: web::Json<CostParameter>) -> Result<impl Responder, Error> {
-    let wg_id = identity.wg.ok_or(res_error::<&'static str>(StatusCode::FORBIDDEN, None, "You need to be in a wg for this operation."))?;
-
+async fn post_wg_costs(WGMemberIdentity{identity, wg_id} : WGMemberIdentity, new_cost: web::Json<CostParameter>) -> Result<impl Responder, Error> {
     let mut trx = DB_POOL.get().await.begin().await
         .map_err(|e| {error!("AHH: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
 
@@ -499,24 +496,20 @@ async fn get_wg_costs_stats(identity: Identity, query: web::Query<WhichEqualBala
 }
 
 #[post("/my_wg/costs/balance")]
-async fn post_wg_costs_balance(identity: Identity) -> Result<impl Responder, Error> {
-    if let Some(wg_id)  = identity.wg {
-        let mut trx = DB_POOL.get().await.begin().await
-            .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+async fn post_wg_costs_balance(WGMemberIdentity{identity, wg_id} : WGMemberIdentity) -> Result<impl Responder, Error> {
+    let mut trx = DB_POOL.get().await.begin().await
+        .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
 
-        let id: i32 = sqlx::query_scalar!("INSERT INTO equal_balances (balanced_on, initiator_id, wg_id) VALUES ('NOW', $1, $2) RETURNING id", identity.id, wg_id).fetch_one(&mut trx).await
-            .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+    let id: i32 = sqlx::query_scalar!("INSERT INTO equal_balances (balanced_on, initiator_id, wg_id) VALUES ('NOW', $1, $2) RETURNING id", identity.id, wg_id).fetch_one(&mut trx).await
+        .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
 
-        let result = sqlx::query!("UPDATE costs SET equal_balances=$1 WHERE equal_balances IS NULL AND wg_id=$2;", id, wg_id).execute(&mut trx).await
-            .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
-        
-        trx.commit().await
-            .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+    let result = sqlx::query!("UPDATE costs SET equal_balances=$1 WHERE equal_balances IS NULL AND wg_id=$2;", id, wg_id).execute(&mut trx).await
+        .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+    
+    trx.commit().await
+        .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
 
-        return Ok(HttpResponse::Ok().body(result.rows_affected().to_string()));
-    }
-
-    Ok(HttpResponse::Forbidden().body("Need to be in a wg"))
+    return Ok(HttpResponse::Ok().body(result.rows_affected().to_string()));
 }
 
 

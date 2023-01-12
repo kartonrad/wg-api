@@ -102,7 +102,7 @@ Every route starts with `/api`
 - **PUT**  `/my_wg/costs/{id}/receit`
     - You must be the one to have posted this Cost (creditor)
     - Multipart-Form Data Body:
-        - `receit` - File
+        - (required) `receit` - File 
 - GET  `/my_wg/costs/stats`
     - optional query param `balance` - Integer (id of Balance)
 - GET  `/my_wg/costs/balance`

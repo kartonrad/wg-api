@@ -80,9 +80,13 @@ impl Into<SerdeIdentity> for Identity {
     }
 }
 
-
 pub struct TryIdentity(pub Option<Identity>);
-pub struct MaybeIdentity(Result<Identity, actix_web::Error>);
+pub struct MaybeIdentity(pub Result<Identity, actix_web::Error>);
+pub struct WGMemberIdentity{
+    pub identity: Identity, 
+    pub wg_id: i32 
+}
+
 
 #[derive(ThisErrorError, Debug)]
 enum AuthError {
@@ -382,6 +386,27 @@ impl FromRequest for MaybeIdentity {
         async move {
             let maybe_identity = extractlmao.await;
             Ok(MaybeIdentity(maybe_identity))
+        }.boxed_local()
+    }
+}
+
+impl FromRequest for WGMemberIdentity {
+    type Error = Error;
+    type Future = LocalBoxFuture<'static, Result<Self, Self::Error>>;
+
+    fn from_request(req: &HttpRequest, _payload: &mut Payload) -> Self::Future {
+        Self::extract(req)
+    }
+
+    fn extract(req: &HttpRequest) -> Self::Future { 
+        let predentity = Identity::extract(req);
+        async move {
+            let identity = predentity.await?;
+            if let Some(wg_id) = identity.wg {
+                Ok(WGMemberIdentity{ identity, wg_id })
+            } else {
+                Err(res_error::<&'static str>(StatusCode::FORBIDDEN, None, "User needs to be in a WG to be able to access this endpoint."))
+            }
         }.boxed_local()
     }
 }
