@@ -1,9 +1,9 @@
 use actix_multipart::Multipart;
-use actix_web::{ HttpResponse, Responder, get, put, post, http::StatusCode, web, Error,};
+use actix_web::{ HttpResponse, Responder, get, put, post, http::StatusCode, web, Error, delete,};
 use rust_decimal::Decimal;
 use serde::{Serialize, Deserialize};
 use time::OffsetDateTime;
-use crate::{DB_POOL, change_upload, auth::{res_error, WGMemberIdentity}, file_uploads::{Upload, DBRetrUpload}};
+use crate::{DB_POOL, change_upload, auth::{res_error, WGMemberIdentity}, file_uploads::{Upload, DBRetrUpload, delete_unreferenced_upload}};
 
 use super::auth::Identity;
 
@@ -228,7 +228,7 @@ WHERE wgs.url = $1"#, params.0)
 }
 
 #[put("/my_wg")]
-async fn put_wg(WGMemberIdentity{identity, wg_id} : WGMemberIdentity, payload: Multipart) -> Result<impl Responder, Error> {
+async fn put_wg(WGMemberIdentity{wg_id, ..} : WGMemberIdentity, payload: Multipart) -> Result<impl Responder, Error> {
 
     #[derive(Serialize, Default)]
     struct ResJson {
@@ -420,29 +420,45 @@ async fn put_wg_costs_id_receit(identity: Identity, payload: Multipart, params: 
     Ok(HttpResponse::BadRequest().body("Please provide a 'receit' field using multipart form data"))
 }
 
-/* 
+
 #[delete("/my_wg/costs/{id}")]
 async fn delete_wg_costs_id(identity: Identity, params: web::Path<(i32,)>) -> Result<impl Responder, Error> {
 
-    let cost: (i32, Option<i32>) = sqlx::query!("SELECT creditor_id, receit_id FROM costs WHERE id=$1", params.0).fetch_one(DB_POOL.get().await).await
+    let mut trx = DB_POOL.get().await.begin().await
+        .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+
+
+    let cost = sqlx::query!( "SELECT creditor_id, receit_id FROM costs WHERE id=$1;", params.0).fetch_one(&mut trx).await
         .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
     
-    if identity.id != cost.0 {
+    if identity.id != cost.creditor_id {
         return Ok(HttpResponse::Forbidden().body("Lmao nah you didn't originally post this"));
     }
 
-    if let Some(formerupload_id) = cost.1 {
-        let formerupload = sqlx::query_as!(DBRetrUpload, "SELECT id, extension, original_filename, size_kb FROM uploads WHERE id=$1",formerupload_id)
-            .fetch_one(DB_POOL.get().await).await
-            .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
-    }
+    let formerupload = 
+    if let Some(formerupload_id) = cost.receit_id {
+        Some ( 
+            sqlx::query!("SELECT id, extension, original_filename, size_kb FROM uploads WHERE id=$1",formerupload_id)
+            .fetch_one(&mut trx).await
+            .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})? 
+        )
+    } else {
+        None
+    };
     
-
-    let query_res = sqlx::query!("DELETE CASCADE FROM costs WHERE id = $1", params.0).execute(DB_POOL.get().await).await
+    let query_res = sqlx::query!("DELETE FROM costs WHERE id = $1", params.0).execute(&mut trx).await
         .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
     
-    return Ok(HttpResponse::Ok().body(query_res.rows_affected().to_string()));
-}*/
+    trx.commit().await
+        .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+
+    if let Some(f) = formerupload {
+        delete_unreferenced_upload(f.id, DB_POOL.get().await).await
+            .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+    }
+
+    return Ok(HttpResponse::Ok().body("success"));
+}
 
 #[get("/my_wg/costs/stats")]
 async fn get_wg_costs_stats(identity: Identity, query: web::Query<WhichEqualBalance>) -> Result<impl Responder, Error> {
@@ -617,7 +633,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
 
             .service(get_wg_costs_id)
             .service(put_wg_costs_id_receit)
-            //.service(delete_wg_costs_id)
+            .service(delete_wg_costs_id)
 
             .service(post_wg_costs_balance)
             .service(get_wg_costs_balance)

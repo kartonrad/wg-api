@@ -8,7 +8,7 @@ use crate::{DB_POOL, auth::{res_error, TryIdentity}};
 
 
 use actix_web::{http::StatusCode, get};
-use sqlx::{Transaction, Postgres};
+use sqlx::{Transaction, Postgres, Executor};
 use tokio::{fs::{OpenOptions,self}, io::AsyncWriteExt};
 use std::fs::remove_file as remove_file_sync;
 use std::{
@@ -242,7 +242,6 @@ async fn write_field_to_file(mut field: actix_multipart::Field, file: &mut tokio
     Ok(size)
 }
 
-
 pub async fn multipart_parse<const NR_STRS: usize, const NR_FILES: usize>(mut payload: Multipart, string_fields: [&str;NR_STRS], file_fields: [&str;NR_FILES]) 
     -> Result<( [Option<String>;NR_STRS], [Option<TempUpload>;NR_FILES] ) , UploadError> 
 {
@@ -282,7 +281,19 @@ pub async fn multipart_parse<const NR_STRS: usize, const NR_FILES: usize>(mut pa
     Ok(( strings, files ))
 }
 
-
+pub async fn delete_unreferenced_upload<'a,T>(formerup: i32, transaction: T) -> Result<(), sqlx::Error>
+where T: Executor<'a, Database=Postgres>
+{
+    let row = sqlx::query!( "DELETE FROM uploads WHERE id = $1 RETURNING extension, original_filename;", formerup)
+        .fetch_one(transaction).await?;
+    
+    let del_path = format!("uploads/{}.{}", formerup, row.extension);
+    match fs::remove_file( &del_path ).await {
+        Ok(_) => info!("Successfully removed old upload {}, (original filename: {:?})", del_path, row.original_filename),
+        Err(e) => warn!("Failed to delete permanent Upload file, after error, at: {} -- It has now become orphaned!!\nReason: {:?}", del_path, e)
+    }
+    Ok(())
+}
 
 
 /**
@@ -295,11 +306,10 @@ macro_rules! change_upload {
         {
         use futures_util::future::LocalBoxFuture;
         use futures_util::FutureExt;
-        use tokio::fs;
-        use std::string::String;
         use std::concat;
         use sqlx::postgres::PgArguments;
         use crate::file_uploads::Upload;
+        use crate::file_uploads::delete_unreferenced_upload;
         use sqlx::Arguments;
         |temp: TempUpload, row_id: $t, scope_to_wg: Option<i32>| -> LocalBoxFuture<'static, Result<Upload, sqlx::Error>> {
             let row_id = row_id.to_owned();
@@ -320,16 +330,7 @@ macro_rules! change_upload {
                     .execute(&mut ascending.transaction).await?;
 
                 if let Some(formerup) = former_upload {
-                    let mut delete_args = PgArguments::default();
-                    delete_args.add(former_upload);
-                    let (extension, original_filename): (String,String) = sqlx::query_as_with("DELETE FROM uploads WHERE id = $1 RETURNING extension, original_filename;", delete_args)
-                        .fetch_one(&mut ascending.transaction).await?;
-                    
-                    let del_path = format!("uploads/{}.{}", formerup, extension);
-                    match fs::remove_file( &del_path ).await {
-                        Ok(_) => info!("Successfully removed old upload {}, (original filename: {})", del_path, original_filename),
-                        Err(e) => warn!("Failed to delete permanent Upload file, after error, at: {} -- It has now become orphaned!!\nReason: {:?}", del_path, e)
-                    }
+                    delete_unreferenced_upload(formerup, &mut ascending.transaction).await?;
                 }
 
                 Ok(ascending.ascend().await?)
