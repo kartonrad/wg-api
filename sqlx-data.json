@@ -1,0 +1,891 @@
+{
+  "db": "PostgreSQL",
+  "0950b343accc9710720f648b3680f038505451c869d0fd330e57bbd8cbc50a92": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int4",
+          "Int4",
+          "Bool"
+        ]
+      }
+    },
+    "query": "INSERT INTO cost_shares (cost_id, debtor_id, paid) VALUES\n        ($1, $2, $3);"
+  },
+  "0ae5e0d6eab9ae19f25cdb3b8fb4d31e1bc112ded1f2af5f4f5eab8dae353519": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int4",
+          "Int4"
+        ]
+      }
+    },
+    "query": "UPDATE costs SET equal_balances=$1 WHERE equal_balances IS NULL AND wg_id=$2;"
+  },
+  "19e77d7ef057632e020eb81bd6816cd1a9112a0eb7bf49245f44a9a265d67a01": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Int4"
+        ]
+      }
+    },
+    "query": "UPDATE users SET name=$1 WHERE id=$2"
+  },
+  "317523d82cfc3bb1fe5eec7c322e936ac6376352087ea67d0bfb1fa5f1ce6acf": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Int4"
+        ]
+      }
+    },
+    "query": "UPDATE users SET bio=$1 WHERE id=$2"
+  },
+  "343a39efe1489371e4bf0364dde973fb0e4d3f2bc47d9ea1ccbd9db2d3c25bbc": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Int4"
+        ]
+      }
+    },
+    "query": "UPDATE wgs SET description=$1 WHERE id=$2"
+  },
+  "3825dc876036a87dd1f6786e60ff5064db5074d01505c1de58818255951651ac": {
+    "describe": {
+      "columns": [
+        {
+          "name": "u1",
+          "ordinal": 0,
+          "type_info": "Int4"
+        },
+        {
+          "name": "to_recieve",
+          "ordinal": 1,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "u2",
+          "ordinal": 2,
+          "type_info": "Int4"
+        },
+        {
+          "name": "to_pay",
+          "ordinal": 3,
+          "type_info": "Numeric"
+        }
+      ],
+      "nullable": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Int4",
+          "Int4"
+        ]
+      }
+    },
+    "query": "\n            WITH debt_table AS (\n                SELECT debtor_id, creditor_id, (amount/nr_shares)::NUMERIC(16,2) as owed\n                FROM cost_shares\n                LEFT JOIN (\n                    SELECT costs.id, amount, creditor_id, wg_id, equal_balances,\n                        count(*) as nr_shares, sum( CASE WHEN shares.paid = false AND shares.debtor_id != creditor_id THEN 1 ELSE 0 END ) as nr_unpaid_shares\n                    FROM costs\n                    LEFT JOIN cost_shares as shares ON costs.id = shares.cost_id -- multiple per row\n                    GROUP BY costs.id\n                ) AS cost_agg ON cost_agg.id = cost_shares.cost_id\n                WHERE debtor_id != creditor_id AND paid = false AND cost_agg.wg_id = $1  AND cost_agg.wg_id = 1 AND coalesce(equal_balances, 0) = $2\n            ), recieve_table AS (\n                SELECT creditor_id as user_id, sum(owed) as to_recieve\n                FROM debt_table\n                GROUP BY creditor_id\n            ), pay_table AS (\n                SELECT debtor_id as user_id, sum(owed) as to_pay\n                FROM debt_table\n                GROUP BY debtor_id\n            )\n            SELECT recieve_table.user_id as u1, to_recieve, pay_table.user_id as u2, to_pay FROM recieve_table\n            FULL OUTER JOIN pay_table ON( recieve_table.user_id = pay_table.user_id );"
+  },
+  "3a708af62bd589e2dfb3e5db4f33b4c4fe87f2b48dcd4cdbc747b1f44bfd3dae": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int4",
+          "Varchar",
+          "Numeric",
+          "Int4",
+          "Timestamptz"
+        ]
+      }
+    },
+    "query": "INSERT INTO costs (wg_id, name, amount, creditor_id, added_on) VALUES\n    ($1, $2, $3, $4, $5) RETURNING id;"
+  },
+  "42d6c3f9a260b251a95989fa2f765c0aa23870407c3786a973180ebf1fc931e7": {
+    "describe": {
+      "columns": [
+        {
+          "name": "extension",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "original_filename",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Int4"
+        ]
+      }
+    },
+    "query": "DELETE FROM uploads WHERE id = $1 RETURNING extension, original_filename;"
+  },
+  "50a0b32691e06e5a571f4975e541d7a1005eb15f5b2b384c6097033cbb226bd2": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int4"
+        },
+        {
+          "name": "profile_pic",
+          "ordinal": 1,
+          "type_info": "Int4"
+        },
+        {
+          "name": "name",
+          "ordinal": 2,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "bio",
+          "ordinal": 3,
+          "type_info": "Text"
+        },
+        {
+          "name": "username",
+          "ordinal": 4,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "password_hash",
+          "ordinal": 5,
+          "type_info": "Bpchar"
+        },
+        {
+          "name": "revoke_before",
+          "ordinal": 6,
+          "type_info": "Timestamp"
+        },
+        {
+          "name": "wg",
+          "ordinal": 7,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        false,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT * FROM users WHERE username = $1;"
+  },
+  "530f83a2ae8fa5b0c1892fa19ab5c8919d628d1f982237b1b53cc80de857c3ff": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Int4"
+        ]
+      }
+    },
+    "query": "UPDATE users SET username=$1 WHERE id=$2"
+  },
+  "56b3d05470093ee0a9e8160e0b544d901556b98726fdde4ac9c1fc12a36563ec": {
+    "describe": {
+      "columns": [
+        {
+          "name": "time_bucket",
+          "ordinal": 0,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "total_unified_spending",
+          "ordinal": 1,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "i_paid",
+          "ordinal": 2,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "i_recieved",
+          "ordinal": 3,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "my_total_spending",
+          "ordinal": 4,
+          "type_info": "Numeric"
+        }
+      ],
+      "nullable": [
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Int4",
+          "Int4",
+          "Text"
+        ]
+      }
+    },
+    "query": "\n        SELECT\n            date_trunc($3, added_on) as time_bucket ,\n            coalesce( sum(costs.amount), 0) as total_unified_spending,\n            coalesce( sum( CASE WHEN costs.paid = false AND costs.debtor_id != costs.creditor_id THEN (costs.amount/costs.nr_shares)::NUMERIC(16,2) ELSE 0 END ), 0) as i_paid,\n            coalesce( sum( CASE WHEN creditor_id = $2 THEN (costs.amount/costs.nr_shares*costs.nr_unpaid_shares)::NUMERIC(16,2) ELSE 0 END ), 0) as i_recieved,\n            coalesce( sum( CASE WHEN costs.paid IS NOT NULL THEN (costs.amount/costs.nr_shares)::NUMERIC(16,2) ELSE 0 END ), 0) AS my_total_spending\n        FROM (\n            SELECT id, amount, creditor_id, added_on, equal_balances, my_share.paid, my_share.debtor_id,\n                count(*) as nr_shares, coalesce( sum( CASE WHEN shares.paid = false AND shares.debtor_id != creditor_id THEN 1 ELSE 0 END) , 0) as nr_unpaid_shares\n            FROM costs\n            LEFT JOIN cost_shares as shares ON costs.id = shares.cost_id -- multiple per row\n            LEFT JOIN cost_shares as my_share ON costs.id = my_share.cost_id AND my_share.debtor_id = $2 -- guarranteed to be unique per row, as (cost_id, debtor_id) is PRIMARY\n            WHERE wg_id = $1\n            GROUP BY costs.id, my_share.cost_id, my_share.paid, my_share.debtor_id\n        ) AS costs\n        GROUP BY time_bucket ORDER BY time_bucket DESC;"
+  },
+  "612fd1d7281f459200375e63e76d49fcfe5845a3bc3e0f279a328b4d94f47ef7": {
+    "describe": {
+      "columns": [
+        {
+          "name": "access_only_by_wg",
+          "ordinal": 0,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Int4"
+        ]
+      }
+    },
+    "query": "SELECT access_only_by_wg FROM uploads WHERE id=$1;"
+  },
+  "66bd8be71e46171683ec777bf6b3fcec8e51289829e9ddfb586563039296d619": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Int4",
+          "Int4"
+        ]
+      }
+    },
+    "query": "INSERT INTO uploads (extension, original_filename, size_kb, access_only_by_wg) VALUES ($1, $2, $3, $4) RETURNING id;"
+  },
+  "693bbc7225c28cb5bf13abd70dc43f4d16931c7fbe2ec80297a85f0533054808": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int4"
+        },
+        {
+          "name": "extension",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "original_filename",
+          "ordinal": 2,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "size_kb",
+          "ordinal": 3,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int4"
+        ]
+      }
+    },
+    "query": "SELECT id, extension, original_filename, size_kb FROM uploads WHERE id=$1"
+  },
+  "70fd533f62558c53765fc2af011055d5c20f361277181b29e1ae8713b8f7e27f": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int4"
+        },
+        {
+          "name": "name",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "bio",
+          "ordinal": 2,
+          "type_info": "Text"
+        },
+        {
+          "name": "username",
+          "ordinal": 3,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "profile_pic: DBRetrUpload",
+          "ordinal": 4,
+          "type_info": "Record"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Int4"
+        ]
+      }
+    },
+    "query": "SELECT users.id, name, bio, username, \n        (pp.id, pp.extension, pp.original_filename, pp.size_kb) as \"profile_pic: DBRetrUpload\"\n    FROM users \n    LEFT JOIN uploads AS pp ON profile_pic = pp.id\n    WHERE users.wg = $1"
+  },
+  "7a3bc9b7012b664a62709cb11bb780e3c756765f66af139c943143e032896906": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int4"
+        ]
+      }
+    },
+    "query": "DELETE FROM costs WHERE id = $1"
+  },
+  "7e12347efb5a45ce4a12f5cd2302ba9b921b0f64448b731c2990d36e6ec07b8d": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int4",
+          "Int4"
+        ]
+      }
+    },
+    "query": "INSERT INTO equal_balances (balanced_on, initiator_id, wg_id) VALUES ('NOW', $1, $2) RETURNING id"
+  },
+  "a095531702208a925b6f51bb3cf7f00dbb486c143a01fa2819bf9b82ea766ea9": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int4"
+        ]
+      }
+    },
+    "query": "SELECT id FROM users WHERE wg = $1"
+  },
+  "a3d0bc932d7ae06cbe2f25f85d07ce37e2388a4dd10a8ded83f317de49677b67": {
+    "describe": {
+      "columns": [
+        {
+          "name": "cost_id",
+          "ordinal": 0,
+          "type_info": "Int4"
+        },
+        {
+          "name": "debtor_id",
+          "ordinal": 1,
+          "type_info": "Int4"
+        },
+        {
+          "name": "paid",
+          "ordinal": 2,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int4",
+          "Int4"
+        ]
+      }
+    },
+    "query": "SELECT cost_id, debtor_id, paid \n        FROM cost_shares LEFT JOIN costs ON cost_id = costs.id\n        WHERE cost_id=$1 AND costs.wg_id = $2"
+  },
+  "b9f9cc76efb980e3adb951fbf7f4beac95a281d7bc39dd65ae3ab4263f6b179f": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Int4"
+        ]
+      }
+    },
+    "query": "UPDATE wgs SET name=$1 WHERE id=$2"
+  },
+  "bed0cdae1aedbd2ee93a428a8d0724de238b0ba20868394a1173b2acde959ec4": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Int4"
+        ]
+      }
+    },
+    "query": "UPDATE wgs SET url=$1 WHERE id=$2"
+  },
+  "bf275e0f922d853f53005fd8f7040181caf8d5079c92f2d106cf64f818c94f83": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int4"
+        },
+        {
+          "name": "profile_pic",
+          "ordinal": 1,
+          "type_info": "Int4"
+        },
+        {
+          "name": "name",
+          "ordinal": 2,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "bio",
+          "ordinal": 3,
+          "type_info": "Text"
+        },
+        {
+          "name": "username",
+          "ordinal": 4,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "password_hash",
+          "ordinal": 5,
+          "type_info": "Bpchar"
+        },
+        {
+          "name": "revoke_before",
+          "ordinal": 6,
+          "type_info": "Timestamp"
+        },
+        {
+          "name": "wg",
+          "ordinal": 7,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        false,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Int4"
+        ]
+      }
+    },
+    "query": "SELECT * FROM users WHERE id = $1;"
+  },
+  "c14d7e679805fc66104b1dfa4f3fcd96c91453050f78209da89680a104568764": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int4"
+        },
+        {
+          "name": "url",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "name",
+          "ordinal": 2,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "description",
+          "ordinal": 3,
+          "type_info": "Text"
+        },
+        {
+          "name": "profile_pic: DBRetrUpload",
+          "ordinal": 4,
+          "type_info": "Record"
+        },
+        {
+          "name": "header_pic: DBRetrUpload",
+          "ordinal": 5,
+          "type_info": "Record"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        null,
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT wgs.id, url, name, description, \n    (pp.id, pp.extension, pp.original_filename, pp.size_kb) as \"profile_pic: DBRetrUpload\",\n    (hp.id, hp.extension, hp.original_filename, hp.size_kb) as \"header_pic: DBRetrUpload\"\nFROM wgs \nLEFT JOIN uploads AS pp ON profile_pic = pp.id\nLEFT JOIN uploads AS hp ON header_pic = hp.id\nWHERE wgs.url = $1"
+  },
+  "c7104ce7e71e3f82f271b7f948ce92f391555d7161b043b64283db82f05045d8": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int4"
+        },
+        {
+          "name": "wg_id",
+          "ordinal": 1,
+          "type_info": "Int4"
+        },
+        {
+          "name": "name",
+          "ordinal": 2,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "amount",
+          "ordinal": 3,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "creditor_id",
+          "ordinal": 4,
+          "type_info": "Int4"
+        },
+        {
+          "name": "equal_balances",
+          "ordinal": 5,
+          "type_info": "Int4"
+        },
+        {
+          "name": "receit: DBRetrUpload",
+          "ordinal": 6,
+          "type_info": "Record"
+        },
+        {
+          "name": "added_on",
+          "ordinal": 7,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "my_share: DBCostShare",
+          "ordinal": 8,
+          "type_info": "Record"
+        },
+        {
+          "name": "nr_shares",
+          "ordinal": 9,
+          "type_info": "Int8"
+        },
+        {
+          "name": "nr_unpaid_shares",
+          "ordinal": 10,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        null,
+        false,
+        null,
+        null,
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Int4",
+          "Int4",
+          "Int4"
+        ]
+      }
+    },
+    "query": "\n        SELECT costs.id, wg_id, name, amount, creditor_id, equal_balances, (pp.id, pp.extension, pp.original_filename, pp.size_kb) as \"receit: DBRetrUpload\",\n            added_on, ROW(my_share.cost_id, my_share.debtor_id, my_share.paid) as \"my_share: DBCostShare\",\n            count(*) as nr_shares, sum( CASE WHEN shares.paid = false AND shares.debtor_id != creditor_id THEN 1 ELSE 0 END ) as nr_unpaid_shares       \n        FROM costs\n        LEFT JOIN cost_shares as shares ON costs.id = shares.cost_id -- multiple per row\n        LEFT JOIN cost_shares as my_share ON costs.id = my_share.cost_id AND my_share.debtor_id = $1 -- guarranteed to be unique per row, as (cost_id, debtor_id) is PRIMARY\n        LEFT JOIN uploads AS pp ON receit_id = pp.id\n        WHERE wg_id = $2 AND coalesce(equal_balances, 0) = $3\n        GROUP BY costs.id, my_share.cost_id, my_share.debtor_id, my_share.paid, pp.id, pp.extension, pp.original_filename, pp.size_kb\n        ORDER BY added_on DESC;"
+  },
+  "d0fdb96baa44d63bb12847e4e9115da961409b24473f52c993b5fa28dc88b727": {
+    "describe": {
+      "columns": [
+        {
+          "name": "creditor_id",
+          "ordinal": 0,
+          "type_info": "Int4"
+        },
+        {
+          "name": "receit_id",
+          "ordinal": 1,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Int4"
+        ]
+      }
+    },
+    "query": "SELECT creditor_id, receit_id FROM costs WHERE id=$1;"
+  },
+  "d278561d40aa1727bcf2965cc1f2c7978e1f759d497e485a24e76ae7fd3ff65f": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int4"
+        },
+        {
+          "name": "balanced_on",
+          "ordinal": 1,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "initiator_id",
+          "ordinal": 2,
+          "type_info": "Int4"
+        },
+        {
+          "name": "wg_id",
+          "ordinal": 3,
+          "type_info": "Int4"
+        },
+        {
+          "name": "total_unified_spending",
+          "ordinal": 4,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "i_paid",
+          "ordinal": 5,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "i_recieved",
+          "ordinal": 6,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "my_total_spending",
+          "ordinal": 7,
+          "type_info": "Numeric"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        null,
+        null,
+        null,
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Int4",
+          "Int4"
+        ]
+      }
+    },
+    "query": "\n        SELECT equal_balances.id, equal_balances.balanced_on, equal_balances.initiator_id, equal_balances.wg_id, \n            coalesce( sum(costs.amount), 0) as total_unified_spending,\n            coalesce( sum( CASE WHEN costs.paid = false AND costs.debtor_id != costs.creditor_id THEN (costs.amount/costs.nr_shares)::NUMERIC(16,2) ELSE 0 END ), 0) as i_paid,\n            coalesce( sum( CASE WHEN creditor_id = $2 THEN (costs.amount/costs.nr_shares*costs.nr_unpaid_shares)::NUMERIC(16,2) ELSE 0 END ), 0) as i_recieved,\n            coalesce( sum( CASE WHEN costs.paid IS NOT NULL THEN (costs.amount/costs.nr_shares)::NUMERIC(16,2) ELSE 0 END ), 0) AS my_total_spending\n        FROM equal_balances\n        LEFT JOIN (\n            SELECT id, amount, creditor_id, added_on, equal_balances, my_share.paid, my_share.debtor_id,\n                count(*) as nr_shares, coalesce( sum( CASE WHEN shares.paid = false AND shares.debtor_id != creditor_id THEN 1 ELSE 0 END) , 0) as nr_unpaid_shares\n            FROM costs\n            LEFT JOIN cost_shares as shares ON costs.id = shares.cost_id -- multiple per row\n            LEFT JOIN cost_shares as my_share ON costs.id = my_share.cost_id AND my_share.debtor_id = $2 -- guarranteed to be unique per row, as (cost_id, debtor_id) is PRIMARY\n            WHERE wg_id = $1\n            GROUP BY costs.id, my_share.cost_id, my_share.paid, my_share.debtor_id\n        ) AS costs ON costs.equal_balances = equal_balances.id\n        WHERE wg_id = $1\n        GROUP BY equal_balances.id, equal_balances.balanced_on, equal_balances.initiator_id, equal_balances.wg_id\n        ORDER BY equal_balances.balanced_on DESC;"
+  },
+  "ddf592d409ed8531681edab4bb90f3959ec0af15a6a7c88b61a1e734e6f41f18": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int4"
+        },
+        {
+          "name": "url",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "name",
+          "ordinal": 2,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "description",
+          "ordinal": 3,
+          "type_info": "Text"
+        },
+        {
+          "name": "profile_pic: DBRetrUpload",
+          "ordinal": 4,
+          "type_info": "Record"
+        },
+        {
+          "name": "header_pic: DBRetrUpload",
+          "ordinal": 5,
+          "type_info": "Record"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        null,
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Int4"
+        ]
+      }
+    },
+    "query": "SELECT wgs.id, url, name, description, \n        (pp.id, pp.extension, pp.original_filename, pp.size_kb) as \"profile_pic: DBRetrUpload\",\n        (hp.id, hp.extension, hp.original_filename, hp.size_kb) as \"header_pic: DBRetrUpload\"\n    FROM wgs \n    LEFT JOIN uploads AS pp ON profile_pic = pp.id\n    LEFT JOIN uploads AS hp ON header_pic = hp.id\n    WHERE wgs.id = $1"
+  },
+  "e26e1591b93a22b832e520e9809ae563d98eee197ffa28cee8b00c3878695e7d": {
+    "describe": {
+      "columns": [
+        {
+          "name": "creditor_id",
+          "ordinal": 0,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int4"
+        ]
+      }
+    },
+    "query": "SELECT creditor_id FROM costs WHERE id=$1"
+  },
+  "f967bfdfe8deb78171bec37fa859b721e1c58c66bfc9399b3875bfc63af271c2": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Int4"
+        ]
+      }
+    },
+    "query": "INSERT INTO uploads (extension, original_filename, size_kb) VALUES ($1, $2, $3) RETURNING id;"
+  }
+}

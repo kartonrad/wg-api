@@ -6,7 +6,7 @@ use log::{error, warn, info, debug, trace};
 use lazy_static::lazy_static;
 use serde_json::json;
 use time::{PrimitiveDateTime, OffsetDateTime};
-use super::DB_POOL;
+use super::{db, DB_POOL};
 use pbkdf2::{
     password_hash::{
         rand_core::OsRng,
@@ -261,7 +261,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
 async fn login ( login_info: LoginInfo ) -> Result<String, LoginError> {
     // Match a user
     let user = sqlx::query_as!(Identity, "SELECT * FROM users WHERE username = $1;", login_info.username)
-        .fetch_one(DB_POOL.get().await).await
+        .fetch_one(db!()).await
         .map_err( |db_err| {
             match db_err {
                 sqlx::Error::RowNotFound => LoginError::WrongCredentials,
@@ -299,7 +299,7 @@ async fn authenticate(provided_token : &str) -> Result<TryIdentity, AuthError> {
     
     
     let user = sqlx::query_as!(Identity, "SELECT * FROM users WHERE id = $1;", token_d.claims.auth_as)
-        .fetch_one( DB_POOL.get().await).await
+        .fetch_one( db!()).await
         .map_err(|e| match e {
             sqlx::Error::RowNotFound => AuthError::ObjectGone,
             _ => AuthError::Database(e),

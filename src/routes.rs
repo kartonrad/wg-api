@@ -1,13 +1,71 @@
+use std::{fmt::Display};
+
 use actix_multipart::Multipart;
 use actix_web::{ HttpResponse, Responder, get, put, post, http::StatusCode, web, Error, delete,};
 use rust_decimal::Decimal;
 use serde::{Serialize, Deserialize};
 use time::OffsetDateTime;
-use crate::{DB_POOL, change_upload, auth::{res_error, WGMemberIdentity}, file_uploads::{Upload, DBRetrUpload, delete_unreferenced_upload}};
 
-use super::auth::Identity;
+use super::auth::{WGMemberIdentity, Identity};
+use crate::{DB_POOL, change_upload, db};
+use crate::file_uploads::{multipart_parse, TempUpload, Upload, DBRetrUpload, delete_unreferenced_upload};
 
-use crate::file_uploads::{multipart_parse, TempUpload};
+#[derive(Debug)]
+struct DatabaseError(sqlx::Error);
+
+impl From<sqlx::Error> for DatabaseError {
+    fn from(err: sqlx::Error) -> Self {
+        DatabaseError(err)
+    }
+}
+
+// APPROACH 1
+trait ToDatabase<T> {
+    fn handle(self) -> Result<T,DatabaseError>;
+}
+
+impl<T> ToDatabase<T> for Result<T, sqlx::Error> {
+    fn handle(self) -> Result<T,DatabaseError> {
+        match self {
+            Ok(ok) => Ok(ok),
+            Err(err) => {
+                warn!("Database Error Occurred: {}", err);
+                Err(err.into())
+            }
+        }
+    }
+}
+
+// Trait
+impl Display for DatabaseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.0 {
+            sqlx::Error::Database(err) => {
+                if err.constraint().is_some() {
+                    write!(f, "Duplicate Entry/Name may already exist kinda error")
+                } else {
+                    write!(f, "Internal Server Error")
+                }
+            },
+            sqlx::Error::RowNotFound => write!(f, "Record not found"),
+            _ =>  write!(f, "Internal Server Error"),
+        }
+    }
+}
+
+impl actix_web::error::ResponseError for DatabaseError {
+    fn status_code(&self) -> StatusCode {
+        match &self.0 {
+            sqlx::Error::Database(err) => if err.constraint().is_some() {
+                StatusCode::BAD_REQUEST
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            } ,
+            sqlx::Error::RowNotFound => StatusCode::NOT_FOUND,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+}
 
 // ================================================================================== STATE MODEL ==================================================================================
 
@@ -163,21 +221,21 @@ async fn put_user_me(identity: Identity, payload: Multipart) -> Result<impl Resp
     }
     if let Some(name) = &lmaobozo.0[0] {
         let res = sqlx::query!("UPDATE users SET name=$1 WHERE id=$2", name, identity.id)
-            .execute(DB_POOL.get().await).await;
+            .execute(db!()).await;
         if let Ok(_res) = res {
             res_json.name = Some(name.to_owned());
         }
     }
     if let Some(bio) = &lmaobozo.0[1] {
         let res = sqlx::query!("UPDATE users SET bio=$1 WHERE id=$2", bio, identity.id)
-            .execute(DB_POOL.get().await).await;
+            .execute(db!()).await;
         if let Ok(_res) = res {
             res_json.bio = Some(bio.to_owned());
         }
     }
     if let Some(username) = &lmaobozo.0[2] {
         let res = sqlx::query!("UPDATE users SET username=$1 WHERE id=$2", username, identity.id)
-            .execute(DB_POOL.get().await).await;
+            .execute(db!()).await;
         if let Ok(_res) = res {
             res_json.username = Some(username.to_owned());
         }
@@ -190,7 +248,7 @@ async fn put_user_me(identity: Identity, payload: Multipart) -> Result<impl Resp
 // user_change_password, user_revoke_tokens
 
 #[get("/my_wg")]
-async fn get_wg(identity: Identity) -> Result<impl Responder, Error> {
+async fn get_wg(identity: Identity) -> Result<impl Responder, DatabaseError> {
     let wgopt =
     if let Some(wg_id)  = identity.wg {
         //let wg = sqlx::query_as!(WG, "SELECT * FROM wgs WHERE id = $1", wg_id)
@@ -201,7 +259,7 @@ async fn get_wg(identity: Identity) -> Result<impl Responder, Error> {
     LEFT JOIN uploads AS pp ON profile_pic = pp.id
     LEFT JOIN uploads AS hp ON header_pic = hp.id
     WHERE wgs.id = $1"#, wg_id)
-            .fetch_one(DB_POOL.get().await).await.map_err(|e| {error!("AHH: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+            .fetch_one(db!()).await?;
         Some(wg)
     } else {
         None
@@ -212,7 +270,7 @@ async fn get_wg(identity: Identity) -> Result<impl Responder, Error> {
 }
 
 #[get("/wg/{url}")]
-async fn get_wg_public(params: web::Path<(String,)>) -> Result<impl Responder, Error> {
+async fn get_wg_public(params: web::Path<(String,)>) -> Result<impl Responder, DatabaseError> {
     //let wg = sqlx::query_as!(WG, "SELECT * FROM wgs WHERE id = $1", wg_id)
     let wg : WG = sqlx::query_as!(WG, r#"SELECT wgs.id, url, name, description, 
     (pp.id, pp.extension, pp.original_filename, pp.size_kb) as "profile_pic: DBRetrUpload",
@@ -221,7 +279,7 @@ FROM wgs
 LEFT JOIN uploads AS pp ON profile_pic = pp.id
 LEFT JOIN uploads AS hp ON header_pic = hp.id
 WHERE wgs.url = $1"#, params.0)
-        .fetch_one(DB_POOL.get().await).await.map_err(|e| {error!("AHH: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+        .fetch_one(db!()).await?;
     
     Ok( HttpResponse::Ok()
     .json(wg) )
@@ -264,21 +322,21 @@ async fn put_wg(WGMemberIdentity{wg_id, ..} : WGMemberIdentity, payload: Multipa
     }
     if let Some(name) = &lmaobozo.0[0] {
         let res = sqlx::query!("UPDATE wgs SET name=$1 WHERE id=$2", name, wg_id)
-            .execute(DB_POOL.get().await).await;
+            .execute(db!()).await;
         if let Ok(_res) = res {
             res_json.name = Some(name.to_owned());
         }
     }
     if let Some(url) = &lmaobozo.0[1] {
         let res = sqlx::query!("UPDATE wgs SET url=$1 WHERE id=$2", url, wg_id)
-            .execute(DB_POOL.get().await).await;
+            .execute(db!()).await;
         if let Ok(_res) = res {
             res_json.url = Some(url.to_owned());
         }
     }
     if let Some(description) = &lmaobozo.0[2] {
         let res = sqlx::query!("UPDATE wgs SET description=$1 WHERE id=$2", description, wg_id)
-            .execute(DB_POOL.get().await).await;
+            .execute(db!()).await;
         if let Ok(_res) = res {
             res_json.description = Some(description.to_owned());
         }
@@ -289,7 +347,7 @@ async fn put_wg(WGMemberIdentity{wg_id, ..} : WGMemberIdentity, payload: Multipa
 }
 
 #[get("/my_wg/users")]
-async fn get_wg_users(identity: Identity) -> Result<impl Responder, Error>  {
+async fn get_wg_users(identity: Identity) -> Result<impl Responder, DatabaseError>  {
     let wgopt =
     if let Some(wg_id)  = identity.wg {
         //let wg = sqlx::query_as!(WG, "SELECT * FROM wgs WHERE id = $1", wg_id)
@@ -298,7 +356,7 @@ async fn get_wg_users(identity: Identity) -> Result<impl Responder, Error>  {
     FROM users 
     LEFT JOIN uploads AS pp ON profile_pic = pp.id
     WHERE users.wg = $1"#, wg_id)
-            .fetch_all(DB_POOL.get().await).await.map_err(|e| {error!("AHH: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+            .fetch_all(db!()).await?;
         Some(wg)
     } else {
         None
@@ -309,21 +367,21 @@ async fn get_wg_users(identity: Identity) -> Result<impl Responder, Error>  {
 }
 
 #[get("/wg/{id}/users")]
-async fn get_wg_users_public(params: web::Path<(i32,)>) -> Result<impl Responder, Error>  {
+async fn get_wg_users_public(params: web::Path<(i32,)>) -> Result<impl Responder, DatabaseError>  {
         //let wg = sqlx::query_as!(WG, "SELECT * FROM wgs WHERE id = $1", wg_id)
     let wg : Vec<User> = sqlx::query_as!(User, r#"SELECT users.id, name, bio, username, 
         (pp.id, pp.extension, pp.original_filename, pp.size_kb) as "profile_pic: DBRetrUpload"
     FROM users 
     LEFT JOIN uploads AS pp ON profile_pic = pp.id
     WHERE users.wg = $1"#, params.0)
-            .fetch_all(DB_POOL.get().await).await.map_err(|e| {error!("AHH: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+            .fetch_all(db!()).await?;
     
     Ok( HttpResponse::Ok()
     .json(wg) )
 }
 
 #[get("/my_wg/costs")]
-async fn get_wg_costs(identity: Identity, query: web::Query<WhichEqualBalance>) -> Result<impl Responder, Error> {
+async fn get_wg_costs(identity: Identity, query: web::Query<WhichEqualBalance>) -> Result<impl Responder, DatabaseError> {
     let costs_opt =
     if let Some(wg_id)  = identity.wg {
         let cost = sqlx::query_as!(Cost, r#"
@@ -337,7 +395,7 @@ async fn get_wg_costs(identity: Identity, query: web::Query<WhichEqualBalance>) 
         WHERE wg_id = $2 AND coalesce(equal_balances, 0) = $3
         GROUP BY costs.id, my_share.cost_id, my_share.debtor_id, my_share.paid, pp.id, pp.extension, pp.original_filename, pp.size_kb
         ORDER BY added_on DESC;"#, identity.id, wg_id, query.balance.unwrap_or(0))
-            .fetch_all(DB_POOL.get().await).await.map_err(|e| {error!("AHH: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+            .fetch_all(db!()).await?;
 
         Some(cost)
     } else {
@@ -349,16 +407,16 @@ async fn get_wg_costs(identity: Identity, query: web::Query<WhichEqualBalance>) 
 }
 
 #[post("/my_wg/costs")]
-async fn post_wg_costs(WGMemberIdentity{identity, wg_id} : WGMemberIdentity, new_cost: web::Json<CostParameter>) -> Result<impl Responder, Error> {
-    let mut trx = DB_POOL.get().await.begin().await
-        .map_err(|e| {error!("AHH: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+async fn post_wg_costs(WGMemberIdentity{identity, wg_id} : WGMemberIdentity, new_cost: web::Json<CostParameter>) -> Result<impl Responder, DatabaseError> {
+    let mut trx = db!().begin().await
+        ?;
 
     let cost_id: i32 = sqlx::query_scalar!("INSERT INTO costs (wg_id, name, amount, creditor_id, added_on) VALUES
     ($1, $2, $3, $4, $5) RETURNING id;", wg_id, new_cost.name, new_cost.amount, identity.id, new_cost.added_on)
-        .fetch_one(&mut trx).await.map_err(|e| {error!("AHH: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+        .fetch_one(&mut trx).await?;
    
     let users = sqlx::query_scalar!("SELECT id FROM users WHERE wg = $1", wg_id)
-        .fetch_all(&mut trx).await.map_err(|e| {error!("AHH: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+        .fetch_all(&mut trx).await?;
     
     for debtor in new_cost.debtors.iter() {
         if !users.contains( &debtor.0 )  {
@@ -371,22 +429,22 @@ async fn post_wg_costs(WGMemberIdentity{identity, wg_id} : WGMemberIdentity, new
 
         sqlx::query_scalar!("INSERT INTO cost_shares (cost_id, debtor_id, paid) VALUES
         ($1, $2, $3);", cost_id, debtor.0, paid)
-            .execute(&mut trx).await.map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+            .execute(&mut trx).await?;
     }
-    trx.commit().await.map_err(|e| {error!("AHH: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+    trx.commit().await?;
 
     Ok( HttpResponse::Ok()
         .json(cost_id) )
 }
 
 #[get("/my_wg/costs/{id}/shares")]
-async fn get_wg_costs_id(identity: Identity, params: web::Path<(i32,)>) -> Result<impl Responder, Error> {
+async fn get_wg_costs_id(identity: Identity, params: web::Path<(i32,)>) -> Result<impl Responder, DatabaseError> {
     let shares_opt =
     if let Some(wg_id)  = identity.wg {
         let shares = sqlx::query_as!(CostShare, "SELECT cost_id, debtor_id, paid 
         FROM cost_shares LEFT JOIN costs ON cost_id = costs.id
         WHERE cost_id=$1 AND costs.wg_id = $2", params.0, wg_id)
-            .fetch_all(DB_POOL.get().await).await.map_err(|e| {error!("AHH: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+            .fetch_all(db!()).await?;
 
         Some(shares)
     } else {
@@ -400,8 +458,7 @@ async fn get_wg_costs_id(identity: Identity, params: web::Path<(i32,)>) -> Resul
 #[put("/my_wg/costs/{id}/receit")]
 async fn put_wg_costs_id_receit(identity: Identity, payload: Multipart, params: web::Path<(i32,)>) -> Result<impl Responder, Error> {
     
-    let id: i32 = sqlx::query_scalar!("SELECT creditor_id FROM costs WHERE id=$1", params.0).fetch_one(DB_POOL.get().await).await
-        .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+    let id: i32 = sqlx::query_scalar!("SELECT creditor_id FROM costs WHERE id=$1", params.0).fetch_one(db!()).await.handle()?;
     
     if identity.id != id {
         return Ok(HttpResponse::Forbidden().body("Lmao nah you didn't originally post this"));
@@ -411,8 +468,7 @@ async fn put_wg_costs_id_receit(identity: Identity, payload: Multipart, params: 
     trace!("Bozo fields: {:?}", lmaobozo);
 
     if let Some(receitf) = &mut lmaobozo.1[0] {
-        let new_upl = change_upload!("costs", "receit_id", i32)(receitf.move_responsibility(), params.0, identity.wg).await
-            .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+        let new_upl = change_upload!("costs", "receit_id", i32)(receitf.move_responsibility(), params.0, identity.wg).await.handle()?;
 
         return Ok(HttpResponse::Ok().body( format!("Successfully changed receit\n{:?}", new_upl) ));
     }
@@ -422,14 +478,12 @@ async fn put_wg_costs_id_receit(identity: Identity, payload: Multipart, params: 
 
 
 #[delete("/my_wg/costs/{id}")]
-async fn delete_wg_costs_id(identity: Identity, params: web::Path<(i32,)>) -> Result<impl Responder, Error> {
+async fn delete_wg_costs_id(identity: Identity, params: web::Path<(i32,)>) -> Result<impl Responder, DatabaseError> {
 
-    let mut trx = DB_POOL.get().await.begin().await
-        .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+    let mut trx = db!().begin().await?;
 
 
-    let cost = sqlx::query!( "SELECT creditor_id, receit_id FROM costs WHERE id=$1;", params.0).fetch_one(&mut trx).await
-        .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+    let cost = sqlx::query!( "SELECT creditor_id, receit_id FROM costs WHERE id=$1;", params.0).fetch_one(&mut trx).await?;
     
     if identity.id != cost.creditor_id {
         return Ok(HttpResponse::Forbidden().body("Lmao nah you didn't originally post this"));
@@ -439,29 +493,25 @@ async fn delete_wg_costs_id(identity: Identity, params: web::Path<(i32,)>) -> Re
     if let Some(formerupload_id) = cost.receit_id {
         Some ( 
             sqlx::query!("SELECT id, extension, original_filename, size_kb FROM uploads WHERE id=$1",formerupload_id)
-            .fetch_one(&mut trx).await
-            .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})? 
+            .fetch_one(&mut trx).await? 
         )
     } else {
         None
     };
     
-    let query_res = sqlx::query!("DELETE FROM costs WHERE id = $1", params.0).execute(&mut trx).await
-        .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+    let _query_res = sqlx::query!("DELETE FROM costs WHERE id = $1", params.0).execute(&mut trx).await?;
     
-    trx.commit().await
-        .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+    trx.commit().await?;
 
     if let Some(f) = formerupload {
-        delete_unreferenced_upload(f.id, DB_POOL.get().await).await
-            .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+        delete_unreferenced_upload(f.id, db!()).await?;
     }
 
     return Ok(HttpResponse::Ok().body("success"));
 }
 
 #[get("/my_wg/costs/stats")]
-async fn get_wg_costs_stats(identity: Identity, query: web::Query<WhichEqualBalance>) -> Result<impl Responder, Error> {
+async fn get_wg_costs_stats(identity: Identity, query: web::Query<WhichEqualBalance>) -> Result<impl Responder, DatabaseError> {
     let costs_opt =
     if let Some(wg_id)  = identity.wg {
         let dtrs: Vec<DebtTableRecord> = sqlx::query_as!( DebtTableRecord , r#"
@@ -488,7 +538,7 @@ async fn get_wg_costs_stats(identity: Identity, query: web::Query<WhichEqualBala
             SELECT recieve_table.user_id as u1, to_recieve, pay_table.user_id as u2, to_pay FROM recieve_table
             FULL OUTER JOIN pay_table ON( recieve_table.user_id = pay_table.user_id );"#
         , wg_id, query.balance.unwrap_or(0))
-            .fetch_all(DB_POOL.get().await).await.map_err(|e| {error!("AHH: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+            .fetch_all(db!()).await?;
 
         let mut debts: Vec<UserDebt> = vec![];
         for record in dtrs {
@@ -512,25 +562,21 @@ async fn get_wg_costs_stats(identity: Identity, query: web::Query<WhichEqualBala
 }
 
 #[post("/my_wg/costs/balance")]
-async fn post_wg_costs_balance(WGMemberIdentity{identity, wg_id} : WGMemberIdentity) -> Result<impl Responder, Error> {
-    let mut trx = DB_POOL.get().await.begin().await
-        .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+async fn post_wg_costs_balance(WGMemberIdentity{identity, wg_id} : WGMemberIdentity) -> Result<impl Responder, DatabaseError> {
+    let mut trx = db!().begin().await?;
 
-    let id: i32 = sqlx::query_scalar!("INSERT INTO equal_balances (balanced_on, initiator_id, wg_id) VALUES ('NOW', $1, $2) RETURNING id", identity.id, wg_id).fetch_one(&mut trx).await
-        .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+    let id: i32 = sqlx::query_scalar!("INSERT INTO equal_balances (balanced_on, initiator_id, wg_id) VALUES ('NOW', $1, $2) RETURNING id", identity.id, wg_id).fetch_one(&mut trx).await?;
 
-    let result = sqlx::query!("UPDATE costs SET equal_balances=$1 WHERE equal_balances IS NULL AND wg_id=$2;", id, wg_id).execute(&mut trx).await
-        .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+    let result = sqlx::query!("UPDATE costs SET equal_balances=$1 WHERE equal_balances IS NULL AND wg_id=$2;", id, wg_id).execute(&mut trx).await?;
     
-    trx.commit().await
-        .map_err(|e| {error!("OAHo: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+    trx.commit().await?;
 
     return Ok(HttpResponse::Ok().body(result.rows_affected().to_string()));
 }
 
 
 #[get("/my_wg/costs/balance")]
-async fn get_wg_costs_balance(identity: Identity) -> Result<impl Responder, Error> {
+async fn get_wg_costs_balance(identity: Identity) -> Result<impl Responder, DatabaseError> {
     let costs_opt =
     if let Some(wg_id)  = identity.wg {
         let balances = sqlx::query_as!(Balance, r#"
@@ -552,7 +598,7 @@ async fn get_wg_costs_balance(identity: Identity) -> Result<impl Responder, Erro
         WHERE wg_id = $1
         GROUP BY equal_balances.id, equal_balances.balanced_on, equal_balances.initiator_id, equal_balances.wg_id
         ORDER BY equal_balances.balanced_on DESC;"#,  wg_id, identity.id)
-            .fetch_all(DB_POOL.get().await).await.map_err(|e| {error!("AHH: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+            .fetch_all(db!()).await?;
 
         Some(balances)
     } else {
@@ -564,7 +610,7 @@ async fn get_wg_costs_balance(identity: Identity) -> Result<impl Responder, Erro
 }
 
 #[get("/my_wg/costs/over_time/{interval}")]
-async fn get_wg_costs_over_time(identity: Identity, params: web::Path<(String,)> ) -> Result<impl Responder, Error> {
+async fn get_wg_costs_over_time(identity: Identity, params: web::Path<(String,)> ) -> Result<impl Responder, DatabaseError> {
     let costs_opt =
     if let Some(wg_id)  = identity.wg {
         let balances = sqlx::query_as!(SpendingInTime, r#"
@@ -584,7 +630,7 @@ async fn get_wg_costs_over_time(identity: Identity, params: web::Path<(String,)>
             GROUP BY costs.id, my_share.cost_id, my_share.paid, my_share.debtor_id
         ) AS costs
         GROUP BY time_bucket ORDER BY time_bucket DESC;"#,  wg_id, identity.id, params.0)
-            .fetch_all(DB_POOL.get().await).await.map_err(|e| {error!("AHH: {}", e); res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "Database quirked up, sry :(")})?;
+            .fetch_all(db!()).await?;
 
         let balances_clean: Vec<SpendingInTimeSer> = balances.iter().filter_map( |item| {
             //let lmao = item.i_paid.zip(item.i_recieved).zip(item.my_total_spending).zip(item.total_unified_spending).zip(item.time_bucket);

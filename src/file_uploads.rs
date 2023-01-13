@@ -4,7 +4,7 @@ use serde::{Serialize, Deserialize};
 use thiserror::Error as ThisErrorError;
 use array_macro::array;
 use futures_util::{StreamExt};
-use crate::{DB_POOL, auth::{res_error, TryIdentity}};
+use crate::{DB_POOL, db, auth::{res_error, TryIdentity}};
 
 
 use actix_web::{http::StatusCode, get};
@@ -28,7 +28,7 @@ pub async fn get_uploads_service( try_identity: TryIdentity, path: actix_web::we
     let filename_int = filename.parse::<i32>().map_err(|e| res_error(StatusCode::UNPROCESSABLE_ENTITY, Some(e), "??? Bozo filename needs to be number and extension"))?;
 
     let access_by_wg: Option<i32> = sqlx::query_scalar!("SELECT access_only_by_wg FROM uploads WHERE id=$1;", filename_int)
-        .fetch_one(DB_POOL.get().await).await.map_err(|e| res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "??? Database glitched/ didn't find your shit"))?;
+        .fetch_one(db!()).await.map_err(|e| res_error(StatusCode::INTERNAL_SERVER_ERROR, Some(e), "??? Database glitched/ didn't find your shit"))?;
     
     if let Some(req_wg) = access_by_wg {
         let error = res_error::<String>(StatusCode::FORBIDDEN, None, "YOu need to be in a specific WG to view this upload");
@@ -163,7 +163,7 @@ impl TempUpload {
     }
 
     pub async fn into_db(self, scope_to_wg: Option<i32>) -> Result<AscendingUpload, sqlx::Error> {
-        let db = DB_POOL.get().await;
+        let db = db!();
         let mut transaction = db.begin().await?;
 
         // IGNORE long filenames, we don't need them

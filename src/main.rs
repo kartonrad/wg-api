@@ -50,6 +50,7 @@ async fn init_db() -> PgPool {
             .connect(&env::var("DATABASE_URL").unwrap()).await.unwrap();
     pool
 }
+#[macro_export]
 macro_rules! db {
     () => {
         DB_POOL.get().await
@@ -68,7 +69,7 @@ async fn main() -> Result<(),std::io::Error> {
     info!("Migrating Database...");
     sqlx::migrate!().run(db!()).await.map_err(|err| Error::new(std::io::ErrorKind::Other, format!("{:?}", err)))?;
 
-    // Create and Clear CLEAR uploads folder
+    // Create and Clear CLEAR temp-uploads folder
     create_dir_all("uploads/temp")?;
     remove_dir_all("uploads/temp")?;
     create_dir_all("uploads/temp")?;
