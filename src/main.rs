@@ -61,8 +61,13 @@ macro_rules! db {
 #[allow(unreachable_code)]
 #[actix_web::main]
 async fn main() -> Result<(),std::io::Error> {
-    dotenv().ok();
-    pretty_env_logger::init();
+    if !env::var("NO_DOTENV").is_ok() {
+        dotenv().ok();
+        pretty_env_logger::try_init();
+    } else {
+        let _ = env_logger::builder().is_test(true).target(env_logger::Target::Stdout).try_init();
+    }
+        
     info!("Hello, world!");
 
     // Migrate db
@@ -85,7 +90,10 @@ async fn main() -> Result<(),std::io::Error> {
             .service(genesis)
             //.service(actix_files::Files::new("/uploads", "uploads").show_files_listing())
             .service(file_uploads::get_uploads_service)
-    } );
+    });
+
+    let envhost = env::var("HOST").expect("Host not set");
+    let envport = env::var("PORT").expect("Port not set");
 
     // take over socket from old process, if available
     let mut listenfd = ListenFd::from_env();
@@ -96,15 +104,18 @@ async fn main() -> Result<(),std::io::Error> {
         },
         None => {
             // Bind to Adress specified in .env
-            let host = env::var("HOST").expect("Host not set");
-            let port = env::var("PORT").expect("Port not set");
-            info!("Binding Server to http://{}:{}", host, port);
-            server.bind(format!("{}:{}", host, port))?
+            info!("Binding Server to http://{}:{}", envhost, envport);
+            server.bind(format!("{}:{}", envhost, envport))?
         }
     };
 
     //block 
-    server.run().await.into()
+    let server = server.run();
+
+    println!("TO PARENT PROCESS: SERVER IS NOW READY!");
+    println!("#READY!{}:{}", env::var("HOST").expect("Host not set"), env::var("PORT").expect("Port not set"));
+
+    server.await
 }
 
 /*fn handle_err_except_duplicate(err: sqlx::Error) -> Result<(), sqlx::Error>{
