@@ -63,7 +63,7 @@ macro_rules! db {
 async fn main() -> Result<(),std::io::Error> {
     if !env::var("NO_DOTENV").is_ok() {
         dotenv().ok();
-        pretty_env_logger::try_init();
+        pretty_env_logger::try_init().expect("Env logger failed to initialize.");
     } else {
         let _ = env_logger::builder().is_test(true).target(env_logger::Target::Stdout).try_init();
     }
