@@ -3,6 +3,19 @@ APi to manage shared costs of your hosehold/community, written in Rust
 
 => [API Documentation](routes.md)
 
+Demo of Frontend at: https://wg.kartonrad.de (enter "test", then select a profile and use "test" as a password)
+
+![Screenshot 2023-04-11 185142](https://user-images.githubusercontent.com/56208328/231243492-621f4d36-0a9b-4616-8d75-2d05df87ad0d.png)
+
+![Screenshot 2023-04-11 193054](https://user-images.githubusercontent.com/56208328/231243410-1650eea6-4b28-4b35-835f-8aa1746d51c4.png)
+
+![grafik](https://user-images.githubusercontent.com/56208328/231243910-fabf52a3-1ad2-4b50-8779-0406ff980e28.png)
+
+![grafik](https://user-images.githubusercontent.com/56208328/231243311-c43fca82-1818-451e-8d11-b405a0bf9783.png)
+
+![Screenshot 2023-04-11 135835](https://user-images.githubusercontent.com/56208328/231243620-71e3791e-6f4a-44c0-ba1a-590ccdd625d5.png)
+
+
 ## Usage/Deploy
 - Download the binary for your system from the releases tab.
 - Download the [.env file](.env) from this repositiory and place it into the same folder.
