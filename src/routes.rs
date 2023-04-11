@@ -525,7 +525,7 @@ async fn get_wg_costs_stats(identity: Identity, query: web::Query<WhichEqualBala
                     LEFT JOIN cost_shares as shares ON costs.id = shares.cost_id -- multiple per row
                     GROUP BY costs.id
                 ) AS cost_agg ON cost_agg.id = cost_shares.cost_id
-                WHERE debtor_id != creditor_id AND paid = false AND cost_agg.wg_id = $1  AND cost_agg.wg_id = 1 AND coalesce(equal_balances, 0) = $2
+                WHERE debtor_id != creditor_id AND paid = false AND cost_agg.wg_id = $1 AND coalesce(equal_balances, 0) = $2
             ), recieve_table AS (
                 SELECT creditor_id as user_id, sum(owed) as to_recieve
                 FROM debt_table
