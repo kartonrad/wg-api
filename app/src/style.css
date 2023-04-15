@@ -1,0 +1,80 @@
+html, body {
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    height: 100vh;
+    width: 100vw;
+    background-color: beige;
+}
+
+#main {
+    min-width: 230px;
+    max-width: 550px;
+    /*height: 100vh;*/
+    margin: 0 auto;
+    height: 100vh;
+    position: relative;
+    background-color: white;
+}
+
+.bottom_tabs {
+    border-top: 2px solid #c6c9d7;
+    background-color: #eff6ff;
+    position: absolute;
+    height: 50px; left: 0; right: 0; bottom: 0;
+    display: flex;
+    justify-content: space-evenly;
+    overflow: hidden;
+    padding: 2px;
+
+    user-select: none;
+    user-drag: none;
+    -webkit-user-drag: none;
+    user-select: none;
+    -moz-user-select: none;
+    -webkit-user-select: none;
+    -ms-user-select: none;
+}
+
+.bottom_tabs a {
+    font-size: 34px;
+    text-decoration: none;
+    width: 50px;
+    text-align: center;
+
+    border-radius: 12px;
+    background: linear-gradient(145deg, #ffffff, #d7dde6);
+    /*box-shadow:  5px 5px 7px #c9cfd6,
+                -5px -5px 7px #ffffff;*/
+}
+
+.bottom_tabs a.active {
+    font-size: 34px;
+    background-color: #b4c3da;
+    text-decoration: none;
+    border-radius: 9px;
+    border-radius: 12px;
+    /*background: #b4c3da;*/
+    box-shadow: inset 5px 5px 7px #a5afbe,
+            inset -5px -5px 7px #e5f1ff;
+
+}
+
+.bottom_tabs a span {
+    /*text-shadow: 2px 0px 0px #FFF, -2px 0px 0px #FFF, 0px 2px 0px #FFF, 0px -2px 0px #FFF;*/
+    filter: brightness(0.7);
+    opacity: 0.7;
+    position: relative;
+    top: -1px;
+}
+
+.bottom_tabs a.active span {
+    filter:none;
+    /*text-shadow: 2px 0px 0px #2c00ff, -2px 0px 0px #f00, 0px 2px 0px #09f, 0px -2px 0px #00ffab;*/
+    text-shadow: 2px 0px 1px #FFF, -2px 0px 1px #FFF, 0px 2px 1px #FFF, 0px -2px 1px #FFF;
+    opacity: 1;
+    position: relative;
+    top: 1px;
+}

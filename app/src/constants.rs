@@ -1,0 +1,1 @@
+pub const API_URL : &'static str = "https://wg-api.kartonrad.de/";
