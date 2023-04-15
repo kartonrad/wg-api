@@ -27,6 +27,45 @@
     },
     "query": "UPDATE costs SET equal_balances=$1 WHERE equal_balances IS NULL AND wg_id=$2;"
   },
+  "16332aca90d0bd1d2a23215dc037a08e0bea561c60869646011b936da692e691": {
+    "describe": {
+      "columns": [
+        {
+          "name": "u1",
+          "ordinal": 0,
+          "type_info": "Int4"
+        },
+        {
+          "name": "to_recieve",
+          "ordinal": 1,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "u2",
+          "ordinal": 2,
+          "type_info": "Int4"
+        },
+        {
+          "name": "to_pay",
+          "ordinal": 3,
+          "type_info": "Numeric"
+        }
+      ],
+      "nullable": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Int4",
+          "Int4"
+        ]
+      }
+    },
+    "query": "\n            WITH debt_table AS (\n                SELECT debtor_id, creditor_id, (amount/nr_shares)::NUMERIC(16,2) as owed\n                FROM cost_shares\n                LEFT JOIN (\n                    SELECT costs.id, amount, creditor_id, wg_id, equal_balances,\n                        count(*) as nr_shares, sum( CASE WHEN shares.paid = false AND shares.debtor_id != creditor_id THEN 1 ELSE 0 END ) as nr_unpaid_shares\n                    FROM costs\n                    LEFT JOIN cost_shares as shares ON costs.id = shares.cost_id -- multiple per row\n                    GROUP BY costs.id\n                ) AS cost_agg ON cost_agg.id = cost_shares.cost_id\n                WHERE debtor_id != creditor_id AND paid = false AND cost_agg.wg_id = $1 AND coalesce(equal_balances, 0) = $2\n            ), recieve_table AS (\n                SELECT creditor_id as user_id, sum(owed) as to_recieve\n                FROM debt_table\n                GROUP BY creditor_id\n            ), pay_table AS (\n                SELECT debtor_id as user_id, sum(owed) as to_pay\n                FROM debt_table\n                GROUP BY debtor_id\n            )\n            SELECT recieve_table.user_id as u1, to_recieve, pay_table.user_id as u2, to_pay FROM recieve_table\n            FULL OUTER JOIN pay_table ON( recieve_table.user_id = pay_table.user_id );"
+  },
   "19e77d7ef057632e020eb81bd6816cd1a9112a0eb7bf49245f44a9a265d67a01": {
     "describe": {
       "columns": [],
@@ -65,45 +104,6 @@
       }
     },
     "query": "UPDATE wgs SET description=$1 WHERE id=$2"
-  },
-  "3825dc876036a87dd1f6786e60ff5064db5074d01505c1de58818255951651ac": {
-    "describe": {
-      "columns": [
-        {
-          "name": "u1",
-          "ordinal": 0,
-          "type_info": "Int4"
-        },
-        {
-          "name": "to_recieve",
-          "ordinal": 1,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "u2",
-          "ordinal": 2,
-          "type_info": "Int4"
-        },
-        {
-          "name": "to_pay",
-          "ordinal": 3,
-          "type_info": "Numeric"
-        }
-      ],
-      "nullable": [
-        true,
-        true,
-        true,
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Int4",
-          "Int4"
-        ]
-      }
-    },
-    "query": "\n            WITH debt_table AS (\n                SELECT debtor_id, creditor_id, (amount/nr_shares)::NUMERIC(16,2) as owed\n                FROM cost_shares\n                LEFT JOIN (\n                    SELECT costs.id, amount, creditor_id, wg_id, equal_balances,\n                        count(*) as nr_shares, sum( CASE WHEN shares.paid = false AND shares.debtor_id != creditor_id THEN 1 ELSE 0 END ) as nr_unpaid_shares\n                    FROM costs\n                    LEFT JOIN cost_shares as shares ON costs.id = shares.cost_id -- multiple per row\n                    GROUP BY costs.id\n                ) AS cost_agg ON cost_agg.id = cost_shares.cost_id\n                WHERE debtor_id != creditor_id AND paid = false AND cost_agg.wg_id = $1  AND cost_agg.wg_id = 1 AND coalesce(equal_balances, 0) = $2\n            ), recieve_table AS (\n                SELECT creditor_id as user_id, sum(owed) as to_recieve\n                FROM debt_table\n                GROUP BY creditor_id\n            ), pay_table AS (\n                SELECT debtor_id as user_id, sum(owed) as to_pay\n                FROM debt_table\n                GROUP BY debtor_id\n            )\n            SELECT recieve_table.user_id as u1, to_recieve, pay_table.user_id as u2, to_pay FROM recieve_table\n            FULL OUTER JOIN pay_table ON( recieve_table.user_id = pay_table.user_id );"
   },
   "3a708af62bd589e2dfb3e5db4f33b4c4fe87f2b48dcd4cdbc747b1f44bfd3dae": {
     "describe": {
