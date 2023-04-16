@@ -29,6 +29,7 @@ pub mod file_uploads;
 pub mod auth;
 pub mod routes;
 pub mod embedded_asset_serve;
+pub mod db_types;
 
 //-------ROUTES
 #[get("/")]

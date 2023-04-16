@@ -638,6 +638,7 @@ dependencies = [
 name = "common"
 version = "0.1.0"
 dependencies = [
+ "rust_decimal",
  "serde",
  "sqlx",
  "time 0.3.20",

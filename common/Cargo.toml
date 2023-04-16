@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 serde = "1.0.160"
 time = { version = "0.3.14", features = ["serde-well-known", "local-offset", "parsing"] }
-
+rust_decimal = "1.26.1"
 
 sqlx = { version = "0.6.2", default-features = false, optional = true }
 
