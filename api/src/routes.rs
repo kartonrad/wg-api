@@ -8,8 +8,11 @@ use time::OffsetDateTime;
 
 use super::auth::{WGMemberIdentity, Identity};
 use crate::{DB_POOL, change_upload, db};
-use crate::file_uploads::{multipart_parse, TempUpload, Upload, DBRetrUpload, delete_unreferenced_upload};
+use crate::file_uploads::{multipart_parse, TempUpload, delete_unreferenced_upload};
+use common::*;
 
+// ================================================================================== ERROR TYPES ==================================================================================
+// Newtype pattern to implement actix_web::error::ResponseError for sqlx::Error (indirectly)
 #[derive(Debug)]
 struct DatabaseError(sqlx::Error);
 
@@ -67,18 +70,35 @@ impl actix_web::error::ResponseError for DatabaseError {
     }
 }
 
-// ================================================================================== STATE MODEL ==================================================================================
+// ================================================================================== STRUCTS ==================================================================================
+use async_trait::async_trait;
 
-#[derive(Serialize)]
-struct WG {
-    id : i32,
-    url: String,
+#[async_trait]
+trait WGExt : Sized { async fn get(id: i32) -> Result<Self, DatabaseError>; async fn get_url(url : &str) -> Result<Self, DatabaseError>; }
 
-    name: String,
-    description: String,
-
-    profile_pic: Option<DBRetrUpload>,
-    header_pic: Option<DBRetrUpload>
+#[async_trait]
+impl WGExt for WG {
+    async fn get(id: i32) -> Result<Self, DatabaseError> {
+        sqlx::query_as!(WG, r#"SELECT wgs.id, url, name, description, 
+            (pp.id, pp.extension, pp.original_filename, pp.size_kb) as "profile_pic: DBUpload",
+            (hp.id, hp.extension, hp.original_filename, hp.size_kb) as "header_pic: DBUpload"
+        FROM wgs 
+        LEFT JOIN uploads AS pp ON profile_pic = pp.id
+        LEFT JOIN uploads AS hp ON header_pic = hp.id
+        WHERE wgs.id = $1"#, id)
+                .fetch_one(db!()).await.handle()
+    }
+    
+    async fn get_url(url : &str) -> Result<Self, DatabaseError> {
+        sqlx::query_as!(WG, r#"SELECT wgs.id, url, name, description, 
+            (pp.id, pp.extension, pp.original_filename, pp.size_kb) as "profile_pic: DBUpload",
+            (hp.id, hp.extension, hp.original_filename, hp.size_kb) as "header_pic: DBUpload"
+        FROM wgs 
+        LEFT JOIN uploads AS pp ON profile_pic = pp.id
+        LEFT JOIN uploads AS hp ON header_pic = hp.id
+        WHERE wgs.url = $1"#, url)
+                .fetch_one(db!()).await.handle()
+    }
 }
 
 #[derive(Serialize)]
@@ -89,7 +109,17 @@ struct User {
     name: String,
     bio: String,
 
-    profile_pic: Option<DBRetrUpload>,
+    profile_pic: Option<DBUpload>,
+}
+impl User {
+    pub async fn fetch_all_wg(wg_id: i32) -> Result<Vec<User>, DatabaseError> {
+        sqlx::query_as!(User, r#"SELECT users.id, name, bio, username, 
+            (pp.id, pp.extension, pp.original_filename, pp.size_kb) as "profile_pic: DBUpload"
+        FROM users 
+        LEFT JOIN uploads AS pp ON profile_pic = pp.id
+        WHERE users.wg = $1"#, wg_id)
+            .fetch_all(db!()).await.handle()
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -103,7 +133,7 @@ struct Cost {
     added_on: time::OffsetDateTime,
     equal_balances: Option<i32>,
 
-    receit: Option<DBRetrUpload>,
+    receit: Option<DBUpload>,
     my_share: Option<DBCostShare>,
     nr_shares: Option<i64>,
     nr_unpaid_shares:  Option<i64>
@@ -190,7 +220,7 @@ async fn get_user_me(mut identity: Identity) -> impl Responder {
     identity.password_hash = "<Not Provided>".to_string();
 
     HttpResponse::Ok()
-        .json(identity)
+        .json(identity.0)
 }
 
 #[put("/me")]
@@ -248,22 +278,8 @@ async fn put_user_me(identity: Identity, payload: Multipart) -> Result<impl Resp
 // user_change_password, user_revoke_tokens
 
 #[get("/my_wg")]
-async fn get_wg(identity: Identity) -> Result<impl Responder, DatabaseError> {
-    let wgopt =
-    if let Some(wg_id)  = identity.wg {
-        //let wg = sqlx::query_as!(WG, "SELECT * FROM wgs WHERE id = $1", wg_id)
-        let wg : WG = sqlx::query_as!(WG, r#"SELECT wgs.id, url, name, description, 
-        (pp.id, pp.extension, pp.original_filename, pp.size_kb) as "profile_pic: DBRetrUpload",
-        (hp.id, hp.extension, hp.original_filename, hp.size_kb) as "header_pic: DBRetrUpload"
-    FROM wgs 
-    LEFT JOIN uploads AS pp ON profile_pic = pp.id
-    LEFT JOIN uploads AS hp ON header_pic = hp.id
-    WHERE wgs.id = $1"#, wg_id)
-            .fetch_one(db!()).await?;
-        Some(wg)
-    } else {
-        None
-    };
+async fn get_wg(identity: WGMemberIdentity) -> Result<impl Responder, DatabaseError> {
+    let wgopt = WG::get(identity.wg_id).await?;
     
     Ok( HttpResponse::Ok()
     .json(wgopt) )
@@ -272,15 +288,8 @@ async fn get_wg(identity: Identity) -> Result<impl Responder, DatabaseError> {
 #[get("/wg/{url}")]
 async fn get_wg_public(params: web::Path<(String,)>) -> Result<impl Responder, DatabaseError> {
     //let wg = sqlx::query_as!(WG, "SELECT * FROM wgs WHERE id = $1", wg_id)
-    let wg : WG = sqlx::query_as!(WG, r#"SELECT wgs.id, url, name, description, 
-    (pp.id, pp.extension, pp.original_filename, pp.size_kb) as "profile_pic: DBRetrUpload",
-    (hp.id, hp.extension, hp.original_filename, hp.size_kb) as "header_pic: DBRetrUpload"
-FROM wgs 
-LEFT JOIN uploads AS pp ON profile_pic = pp.id
-LEFT JOIN uploads AS hp ON header_pic = hp.id
-WHERE wgs.url = $1"#, params.0)
-        .fetch_one(db!()).await?;
-    
+    let wg = WG::get_url(&params.0).await?;
+
     Ok( HttpResponse::Ok()
     .json(wg) )
 }
@@ -347,34 +356,16 @@ async fn put_wg(WGMemberIdentity{wg_id, ..} : WGMemberIdentity, payload: Multipa
 }
 
 #[get("/my_wg/users")]
-async fn get_wg_users(identity: Identity) -> Result<impl Responder, DatabaseError>  {
-    let wgopt =
-    if let Some(wg_id)  = identity.wg {
-        //let wg = sqlx::query_as!(WG, "SELECT * FROM wgs WHERE id = $1", wg_id)
-        let wg : Vec<User> = sqlx::query_as!(User, r#"SELECT users.id, name, bio, username, 
-        (pp.id, pp.extension, pp.original_filename, pp.size_kb) as "profile_pic: DBRetrUpload"
-    FROM users 
-    LEFT JOIN uploads AS pp ON profile_pic = pp.id
-    WHERE users.wg = $1"#, wg_id)
-            .fetch_all(db!()).await?;
-        Some(wg)
-    } else {
-        None
-    };
+async fn get_wg_users(identity: WGMemberIdentity) -> Result<impl Responder, DatabaseError>  {
+    let wg = User::fetch_all_wg(identity.wg_id).await?;
     
     Ok( HttpResponse::Ok()
-    .json(wgopt) )
+    .json(wg) )
 }
 
 #[get("/wg/{id}/users")]
 async fn get_wg_users_public(params: web::Path<(i32,)>) -> Result<impl Responder, DatabaseError>  {
-        //let wg = sqlx::query_as!(WG, "SELECT * FROM wgs WHERE id = $1", wg_id)
-    let wg : Vec<User> = sqlx::query_as!(User, r#"SELECT users.id, name, bio, username, 
-        (pp.id, pp.extension, pp.original_filename, pp.size_kb) as "profile_pic: DBRetrUpload"
-    FROM users 
-    LEFT JOIN uploads AS pp ON profile_pic = pp.id
-    WHERE users.wg = $1"#, params.0)
-            .fetch_all(db!()).await?;
+    let wg = User::fetch_all_wg(params.0).await?;
     
     Ok( HttpResponse::Ok()
     .json(wg) )
@@ -385,7 +376,7 @@ async fn get_wg_costs(identity: Identity, query: web::Query<WhichEqualBalance>) 
     let costs_opt =
     if let Some(wg_id)  = identity.wg {
         let cost = sqlx::query_as!(Cost, r#"
-        SELECT costs.id, wg_id, name, amount, creditor_id, equal_balances, (pp.id, pp.extension, pp.original_filename, pp.size_kb) as "receit: DBRetrUpload",
+        SELECT costs.id, wg_id, name, amount, creditor_id, equal_balances, (pp.id, pp.extension, pp.original_filename, pp.size_kb) as "receit: DBUpload",
             added_on, ROW(my_share.cost_id, my_share.debtor_id, my_share.paid) as "my_share: DBCostShare",
             count(*) as nr_shares, sum( CASE WHEN shares.paid = false AND shares.debtor_id != creditor_id THEN 1 ELSE 0 END ) as nr_unpaid_shares       
         FROM costs

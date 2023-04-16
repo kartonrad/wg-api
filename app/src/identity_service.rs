@@ -45,7 +45,7 @@ pub fn IdentityProvider(cx: Scope) -> Element {
         to_owned![other_identities, identity];
         
         let client = reqwest::Client::builder()
-            .https_only(true)
+            //.https_only(true)
             .build().expect("To be able to make requests.");
 
         async move {

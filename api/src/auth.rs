@@ -52,31 +52,19 @@ struct JWTClaims {
     //sub: String,         // Optional. Subject (whom token refers to)
 }
 
-#[derive(Debug, Serialize, Clone)]
-#[serde(into = "SerdeIdentity")] 
-pub struct Identity {
-    pub id: i32,
-    pub profile_pic: Option<i32>,
-    pub name: String,
-    pub bio: String,
-
-    pub username: String, // '[abcdefghijklmopqrstuvwxyz0123456789-_]+'
-    pub password_hash: String,
-    pub revoke_before: time::PrimitiveDateTime,
-
-    pub wg: Option<i32>
+// Newtype pattern 🥴
+use common::auth::*; // inner identity from here
+pub struct Identity(pub IIdentity);
+//deref bullshit
+impl std::ops::Deref for Identity {
+    type Target = IIdentity;
+    fn deref(&self) -> &IIdentity {
+        return &self.0;
+    }
 }
-#[derive(Debug, Serialize, Deserialize)]
-struct SerdeIdentity {
-    id: i32,profile_pic: Option<i32>,name: String,bio: String,username: String,password_hash: String,wg: Option<i32>,
-    #[serde(with = "time::serde::rfc3339")]
-    revoke_before: time::OffsetDateTime
-}
-impl Into<SerdeIdentity> for Identity {
-    fn into(self) -> SerdeIdentity {
-        SerdeIdentity{ id: self.id, profile_pic: self.profile_pic, name: self.name, bio: self.bio, password_hash: self.password_hash, wg: self.wg, username:self.username,
-            revoke_before: self.revoke_before.assume_utc() 
-        }
+impl std::ops::DerefMut for Identity {
+    fn deref_mut(&mut self) -> &mut IIdentity {
+        return &mut self.0;
     }
 }
 
@@ -109,17 +97,6 @@ impl actix_web::error::ResponseError for AuthError {
             _ => StatusCode::FORBIDDEN
         }
     }
-}
-
-#[derive(Deserialize)]
-struct LoginInfo {
-    username: String,
-    password: String
-}
-
-#[derive(Deserialize)]
-pub struct Pwd {
-    password: String
 }
 
 #[derive(ThisErrorError, Debug)]
@@ -160,7 +137,7 @@ async fn priviledged(mut auth : Identity) -> impl Responder {
             r#"<body>Greetings Aristocrat!<br>
             <img height="300" src="/public/img/greetings_aristocrat.jpg"/><br>
             You successfully authenticated!!<br>
-            {:#?}</body>"#, auth)
+            {:#?}</body>"#, auth.0)
         )
 }
 
@@ -260,7 +237,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
 // Login 
 async fn login ( login_info: LoginInfo ) -> Result<String, LoginError> {
     // Match a user
-    let user = sqlx::query_as!(Identity, "SELECT * FROM users WHERE username = $1;", login_info.username)
+    let user = sqlx::query_as!(IIdentity, "SELECT * FROM users WHERE username = $1;", login_info.username)
         .fetch_one(db!()).await
         .map_err( |db_err| {
             match db_err {
@@ -298,7 +275,7 @@ async fn authenticate(provided_token : &str) -> Result<TryIdentity, AuthError> {
         }).await??;
     
     
-    let user = sqlx::query_as!(Identity, "SELECT * FROM users WHERE id = $1;", token_d.claims.auth_as)
+    let user = sqlx::query_as!(IIdentity, "SELECT * FROM users WHERE id = $1;", token_d.claims.auth_as)
         .fetch_one( db!()).await
         .map_err(|e| match e {
             sqlx::Error::RowNotFound => AuthError::ObjectGone,
@@ -310,7 +287,7 @@ async fn authenticate(provided_token : &str) -> Result<TryIdentity, AuthError> {
     if iat_time <= rev_time {
         Err(AuthError::JWTRevoked)
     } else {
-        Ok(TryIdentity( Some( user ) ))
+        Ok(TryIdentity( Some( Identity(user) ) ))
     }
 }
 

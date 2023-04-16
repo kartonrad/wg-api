@@ -1,6 +1,6 @@
 use actix_files::NamedFile;
 use actix_multipart::Multipart;
-use serde::{Serialize, Deserialize};
+//use serde::{Serialize, Deserialize};
 use thiserror::Error as ThisErrorError;
 use array_macro::array;
 use futures_util::{StreamExt};
@@ -80,21 +80,7 @@ impl actix_web::error::ResponseError for UploadError {
     }
 }
 
-#[derive(sqlx::Type, Serialize, Deserialize)]
-pub struct DBRetrUpload {
-    id: Option<i32>, 
-    extension: Option<String>, 
-    original_filename: Option<String>,
-    size_kb: Option<i32>
-}
-
-#[derive(Debug, Serialize)]
-pub struct Upload {
-    id: i32, 
-    extension: String, 
-    size_kb: i32, 
-    original_filename: String
-}
+use common::Upload;
 
 pub struct AscendingUpload {
     pub temp_upload: TempUpload,
@@ -308,7 +294,7 @@ macro_rules! change_upload {
         use futures_util::FutureExt;
         use std::concat;
         use sqlx::postgres::PgArguments;
-        use crate::file_uploads::Upload;
+        use common::Upload;
         use crate::file_uploads::delete_unreferenced_upload;
         use sqlx::Arguments;
         |temp: TempUpload, row_id: $t, scope_to_wg: Option<i32>| -> LocalBoxFuture<'static, Result<Upload, sqlx::Error>> {
