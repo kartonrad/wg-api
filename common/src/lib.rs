@@ -3,6 +3,7 @@ pub mod auth;
 
 use serde::{Serialize, Deserialize};
 use rust_decimal::Decimal;
+use time::OffsetDateTime;
 
 #[derive(Debug, Serialize)]
 pub struct Upload {
@@ -15,10 +16,10 @@ pub struct Upload {
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
 #[derive(Serialize, Deserialize)]
 pub struct DBUpload {
-    id: Option<i32>, 
-    extension: Option<String>, 
-    original_filename: Option<String>,
-    size_kb: Option<i32>
+    pub id: Option<i32>, 
+    pub extension: Option<String>, 
+    pub original_filename: Option<String>,
+    pub size_kb: Option<i32>
 }
 
 
@@ -98,27 +99,27 @@ pub struct UserDebt {
 
 
 #[derive(Serialize, Deserialize)]
-struct Balance {
-    id: i32,
+pub struct Balance {
+    pub id: i32,
     #[serde(with= "time::serde::rfc3339")]
-    balanced_on: OffsetDateTime,
-    initiator_id: i32,
-    wg_id: i32,
-    total_unified_spending: Option<Decimal>,
-    i_paid: Option<Decimal>,
-    i_recieved: Option<Decimal>,
-    my_total_spending: Option<Decimal>
+    pub balanced_on: OffsetDateTime,
+    pub initiator_id: i32,
+    pub wg_id: i32,
+    pub total_unified_spending: Option<Decimal>,
+    pub i_paid: Option<Decimal>,
+    pub i_recieved: Option<Decimal>,
+    pub my_total_spending: Option<Decimal>
 }
 
 #[derive(Serialize, Deserialize)]
-struct RegularSpending {
+pub struct RegularSpending {
     #[serde(with= "time::serde::rfc3339")]
-    time_bucket: OffsetDateTime,
-    year: i32, week: u8, month: u8,
-    total_unified_spending: Decimal,
-    i_paid: Decimal,
-    i_recieved: Decimal,
-    my_total_spending: Decimal
+    pub time_bucket: OffsetDateTime,
+    pub year: i32, pub week: u8, pub month: u8,
+    pub total_unified_spending: Decimal,
+    pub i_paid: Decimal,
+    pub i_recieved: Decimal,
+    pub my_total_spending: Decimal
 }
 
 

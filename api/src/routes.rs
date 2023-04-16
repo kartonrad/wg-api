@@ -47,8 +47,6 @@ impl actix_web::error::ResponseError for DatabaseError {
 }
 
 // ================================================================================== STRUCTS ==================================================================================
-use async_trait::async_trait;
-
 
 #[derive(Serialize, Deserialize)]
 struct BalanceInput {
