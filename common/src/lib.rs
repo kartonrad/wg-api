@@ -5,7 +5,7 @@ use serde::{Serialize, Deserialize};
 use rust_decimal::Decimal;
 use time::OffsetDateTime;
 
-#[derive(Debug, Serialize)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct Upload {
     pub id: i32, 
     pub extension: String, 
@@ -14,7 +14,7 @@ pub struct Upload {
 }
 
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
-#[derive(Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct DBUpload {
     pub id: Option<i32>, 
     pub extension: Option<String>, 
@@ -24,7 +24,7 @@ pub struct DBUpload {
 
 
 
-#[derive(Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct WG {
     pub id : i32,
     pub url: String,
@@ -36,7 +36,7 @@ pub struct WG {
     pub header_pic: Option<DBUpload>
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct User {
     pub id : i32,
     pub username: String,
@@ -48,7 +48,7 @@ pub struct User {
 }
 
 
-#[derive(Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct CostShare {
     pub cost_id: i32, 
     pub debtor_id: i32,
@@ -56,7 +56,7 @@ pub struct CostShare {
 }
 
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
-#[derive(Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct DBCostShare {
     pub cost_id: Option<i32>, 
     pub debtor_id: Option<i32>,
@@ -64,7 +64,7 @@ pub struct DBCostShare {
 }
 
 /// Struct passed to the backend, to create a cost and it's shares.
-#[derive(Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct CostInput {
     pub name: String,
     pub amount: rust_decimal::Decimal,
@@ -73,7 +73,7 @@ pub struct CostInput {
     pub debtors: Vec<(i32, bool)>
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct Cost {
     pub id: i32,
     pub wg_id : i32,
@@ -90,7 +90,7 @@ pub struct Cost {
     pub nr_unpaid_shares:  Option<i64>
 }
 
-#[derive(Serialize)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct UserDebt {
     pub user_id: i32,
     pub to_recieve: Decimal,
@@ -98,7 +98,7 @@ pub struct UserDebt {
 }
 
 
-#[derive(Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct Balance {
     pub id: i32,
     #[serde(with= "time::serde::rfc3339")]
@@ -111,7 +111,7 @@ pub struct Balance {
     pub my_total_spending: Option<Decimal>
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct RegularSpending {
     #[serde(with= "time::serde::rfc3339")]
     pub time_bucket: OffsetDateTime,

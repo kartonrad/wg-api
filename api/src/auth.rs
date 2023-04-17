@@ -26,6 +26,7 @@ use futures_util::{future::LocalBoxFuture, FutureExt};
 
 // ================================================================================== CONSTS/STATICS ==================================================================================
 const JWT_ALGO: Algorithm = Algorithm::HS256;
+const JWT_EXPIRE_TIME : u64 = 31557600;
 lazy_static! {
     static ref JWT_ISS: String = format!("{} v{} by {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"), env!("CARGO_PKG_AUTHORS")).to_string();
     static ref JWT_SECRET: String = env::var("JWT_SECRET").unwrap();
@@ -178,12 +179,10 @@ async fn login_handler(conn: ConnectionInfo, login_info: web::Json<LoginInfo>) -
 
     let jwt = login(login_info.into_inner()).await?;
 
-    Ok( HttpResponse::Ok().json(json!(
-        {
-            "token": jwt,
-            "expires": get_current_timestamp() + 31557600
-        }
-    ))) 
+    Ok( HttpResponse::Ok().json(Token {
+        token: jwt,
+        expires: get_current_timestamp() + JWT_EXPIRE_TIME
+    }))
 }
 
 #[get("/login_unsafe")]
@@ -195,12 +194,10 @@ async fn unsafe_login_handler(conn: ConnectionInfo, login_info: web::Query<Login
     Ok( HttpResponse::Ok()
         .cookie(
             Cookie::build(&cookie_name("auth_token"), &jwt).http_only(true).permanent().path("/").finish()
-        ).json(json!(
-            {
-                "token": jwt,
-                "expires": get_current_timestamp() + 31557600
-            }
-        ))
+        ).json(Token {
+            token: jwt,
+            expires: get_current_timestamp() + JWT_EXPIRE_TIME
+        })
     ) 
 }
 
@@ -257,7 +254,7 @@ async fn login ( login_info: LoginInfo ) -> Result<String, LoginError> {
                 aud: "USER".to_string(),
                 iss: JWT_ISS.to_string(),
                 iat: get_current_timestamp(),
-                exp: get_current_timestamp() + 31557600
+                exp: get_current_timestamp() + JWT_EXPIRE_TIME
             }, &JWT_ENC_KEY)?;
             Ok(jwt)
         } else {
