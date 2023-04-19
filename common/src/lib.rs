@@ -12,6 +12,11 @@ pub struct Upload {
     pub size_kb: i32, 
     pub original_filename: String
 }
+impl Upload {
+    pub fn to_url(self) -> String {
+        format!("/uploads/{}.{}", self.id, self.extension)
+    }
+}
 
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -21,7 +26,6 @@ pub struct DBUpload {
     pub original_filename: Option<String>,
     pub size_kb: Option<i32>
 }
-
 
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]

@@ -1,6 +1,7 @@
 html, body {
     margin: 0;
     padding: 0;
+    font-family: Verdana, 'Lucida Sans Unicode', sans-serif;
 }
 
 body {
@@ -17,6 +18,7 @@ body {
     height: 100vh;
     position: relative;
     background-color: white;
+    overflow: hidden;
 }
 
 .bottom_tabs {
@@ -28,6 +30,8 @@ body {
     justify-content: space-evenly;
     overflow: hidden;
     padding: 2px;
+
+    box-shadow: 0px -4px 6px #00000056;
 
     user-select: none;
     user-drag: none;
@@ -77,4 +81,89 @@ body {
     opacity: 1;
     position: relative;
     top: 1px;
+}
+
+.wg_app_background {
+    position: absolute;
+    left: 0; right: 0; top: 0; bottom: 50px;
+    background-size: cover;
+    overflow-y: scroll;
+}
+
+.wg_header {
+    background-size: cover;
+    height: 200px;
+    background-image: url("https://wg-api.kartonrad.de/uploads/2.jpeg");
+    background-repeat: no-repeat;
+    background-position: center center;
+    position: relative;
+}
+
+/* SUPERCLASS OF SORTS - avatar */
+.wg_avatar, .user_avatar {
+    width: 90px;
+    height: 90px;
+    position: absolute;
+    border: 4px solid white;
+    border-radius: 111111px;
+    z-index: 10;
+    filter: drop-shadow(0 0 0.75rem #0000009c);
+    background-position: center center;
+    background-size: cover;
+}
+
+.wg_avatar {
+    bottom: -20px;
+    left: 0;
+}
+
+.user_avatar {
+    width: 65px;
+    height: 65px;
+    border: none;
+    left: -20px;
+    top: 5px;
+}
+/* End wg / user avatars  */
+
+/* SUPERCLASS OF SORTS - transparent glass */
+.wg_body, .user_card {
+    backdrop-filter: blur(10px) brightness(1.3);
+    background-color: rgba(255, 255, 255, 0.7);
+    border: 2px solid rgba(174, 174, 174, 0.77);
+
+    border-radius: 30px;
+    padding: 4px;
+    filter: drop-shadow(0 0 0.75rem #00000082);
+    margin-bottom: 1em;
+}
+
+.wg_body {
+    border-top: none;
+    border-top-right-radius: 0px;
+    border-top-left-radius: 0px;
+}
+
+.user_card {
+    backdrop-filter: blur(7px);
+    margin-left: 20px;
+    padding-left: 50px;
+    margin-bottom: 1em;
+    border-width: 1px;
+}
+.user_card h2 {
+    margin-bottom: -1px;
+    margin-top: 6px;
+}
+.user_card h4 {
+    margin-top: 0px; 
+    margin-bottom: 15px;
+    font-weight: normal;
+    font-style: italic;
+    color: rgb(55, 55, 55);
+}
+/* End usercard / wgbody  */
+
+.scroll_container {
+    padding: 10px;
 }

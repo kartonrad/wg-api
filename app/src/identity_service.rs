@@ -7,7 +7,7 @@ use crate::network_types::WGMember;
 use crate::{LoggedInApp, LoggedOutApp};
 use crate::constants::*;
 
-use common::{auth::*, WG};
+use common::{auth::*, WG, User};
 
 pub enum IdentityEvent {
     FetchWg,
@@ -87,7 +87,14 @@ async fn get_member(client: reqwest::Client) -> Result<WGMember, reqwest::Error>
     let wg: WG = client.get( format!("{}/api/my_wg", API_URL) ).send().await?
         .json().await?;
 
-    return Ok(WGMember { identity: identity.into(), wg });
+    let friends: Vec<User> = client.get( format!("{}/api/my_wg/users", API_URL) ).send().await?
+        .json().await?;
+
+    return Ok(WGMember { 
+        identity: identity.into(), 
+        wg,
+        friends
+    });
 }
 
 #[inline_props]
