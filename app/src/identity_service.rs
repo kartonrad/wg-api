@@ -1,7 +1,8 @@
+use std::collections::HashMap;
+
 use dioxus::prelude::*;
 use futures_lite::stream::StreamExt;
 use reqwest::header::HeaderMap;
-use serde::{Serialize,Deserialize};
 
 use crate::network_types::WGMember;
 use crate::{LoggedInApp, LoggedOutApp};
@@ -15,14 +16,11 @@ pub enum IdentityEvent {
     FetchWgProfilePic,
     FetchProfilePic
 }
-
-
 pub enum LoginEvent {
     Login(LoginInfo), // login user and switch to it
     Logout(String), // remove login from list, and switch to none if that was the selected one
     Switch(Option<String>) // switch to none or user specified by string
 }
-
 
 macro_rules! try_c {
     ($e: expr) => {
@@ -87,8 +85,12 @@ async fn get_member(client: reqwest::Client) -> Result<WGMember, reqwest::Error>
     let wg: WG = client.get( format!("{}/api/my_wg", API_URL) ).send().await?
         .json().await?;
 
-    let friends: Vec<User> = client.get( format!("{}/api/my_wg/users", API_URL) ).send().await?
+    let mut friendsVec: Vec<User> = client.get( format!("{}/api/my_wg/users", API_URL) ).send().await?
         .json().await?;
+    let mut friends = HashMap::new();
+    friendsVec.drain(..).for_each( | fr | {
+        friends.insert(fr.id, fr);
+    });
 
     return Ok(WGMember { 
         identity: identity.into(), 

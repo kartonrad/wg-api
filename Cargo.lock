@@ -3562,8 +3562,10 @@ dependencies = [
  "dioxus-web",
  "futures-lite",
  "reqwest",
+ "rust_decimal",
  "serde",
  "serde_json",
+ "time 0.3.20",
 ]
 
 [[package]]

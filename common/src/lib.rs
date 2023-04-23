@@ -13,7 +13,7 @@ pub struct Upload {
     pub original_filename: String
 }
 impl Upload {
-    pub fn to_url(self) -> String {
+    pub fn into_url(self) -> String {
         format!("/uploads/{}.{}", self.id, self.extension)
     }
 }
@@ -71,9 +71,9 @@ pub struct DBCostShare {
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct CostInput {
     pub name: String,
-    pub amount: rust_decimal::Decimal,
+    pub amount: Decimal,
     #[serde(with= "time::serde::iso8601")]
-    pub added_on: time::OffsetDateTime,
+    pub added_on: OffsetDateTime,
     pub debtors: Vec<(i32, bool)>
 }
 
@@ -82,10 +82,10 @@ pub struct Cost {
     pub id: i32,
     pub wg_id : i32,
     pub name: String,
-    pub amount: rust_decimal::Decimal,
+    pub amount: Decimal,
     pub creditor_id: i32,
     #[serde(with= "time::serde::rfc3339")]
-    pub added_on: time::OffsetDateTime,
+    pub added_on: OffsetDateTime,
     pub equal_balances: Option<i32>,
 
     pub receit: Option<DBUpload>,

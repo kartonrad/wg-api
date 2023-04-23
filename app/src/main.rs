@@ -1,5 +1,5 @@
 #![allow(non_snake_case)]
-use common::{auth::{IIdentity, LoginInfo}, WG, Upload};
+use common::auth::LoginInfo;
 // import the prelude to get access to the `rsx!` macro and the `Scope` and `Element` types
 use dioxus::{
     prelude::*
@@ -9,6 +9,8 @@ use dioxus_router::{Route, Router, Redirect, Link};
 mod identity_service;
 mod constants;
 pub mod network_types;
+pub mod screens;
+use screens::{home::HomeScreen, costs::CostScreen, chores::ChoreScreen, settings::SettingScreen};
 
 use constants::API_URL;
 use identity_service::LoginEvent;
@@ -41,12 +43,12 @@ pub fn SketchyLoginForm(cx: Scope) -> Element {
 
     let when_submit = |ev : FormEvent| {
         ev.stop_propagation(); 
-        let info = || -> Option<LoginInfo> {
+        let info = (|| -> Option<LoginInfo> {
             Some(LoginInfo {
                 username: ev.values.get("username")?.to_owned(),
                 password: ev.values.get("password")?.to_owned()
             })
-        }();
+        })();
         
         if let Some(info) = info {
             login_handle.send(LoginEvent::Login(info));
@@ -124,69 +126,6 @@ pub fn Layout<'a>(cx: Scope, children: Element<'a>) -> Element {
         BottomTabs {}
     )
 }
-
-fn HomeScreen(cx: Scope) -> Element {
-    let member = use_shared_state::<WGMember>(cx).unwrap();
-    let member = member.read();
-    let header = get_upload( member.wg.header_pic.clone()).unwrap_or("/public/img/rejection.jpg".to_string());
-    let profile_pic = get_upload( member.wg.profile_pic.clone()).unwrap_or("/public/img/rejection.jpg".to_string());
-
-    let userelems = member.friends.iter().map(|user| {
-        let profile_pic = get_upload( user.profile_pic.clone() ).unwrap_or("/public/img/rejection.jpg".to_string());
-        rsx!(
-            div {
-                class:"user_card",
-                key: "{user.id}",
-
-                div {
-                    class: "user_avatar",
-                    background_image: "url({API_URL}{profile_pic})",
-                }
-
-                h2 { "{user.name}" }
-                h4 { "@{user.username}" }
-                span { "{user.bio}" }
-            }
-        )
-    });
-
-    render!(
-        div {
-            background_image: "url({API_URL}{header})",
-            class: "wg_header",
-
-            div {
-                class: "wg_avatar",
-                background_image: "url({API_URL}{profile_pic})",
-            }
-        }
-        div {
-            class: "wg_body",
-
-            h3 { "{member.wg.name}"}  
-            p {
-                "{member.wg.description}"
-            }
-        }
-        div {
-            class: "scroll_container", 
-            userelems
-        }
-    )
-}
-
-fn ChoreScreen(cx: Scope) -> Element {
-    cx.render(rsx!( div { "CHORE" }))
-}
-
-fn CostScreen(cx: Scope) -> Element {
-    cx.render(rsx!( div { "COSTS" }))
-}
-
-fn SettingScreen(cx: Scope) -> Element {
-    cx.render(rsx!( div { "Settings" }))
-}
-
 
 fn BottomTabs(cx: Scope) -> Element {
     
