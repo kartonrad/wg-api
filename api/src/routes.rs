@@ -250,7 +250,7 @@ async fn post_wg_costs(WGMemberIdentity{identity, wg_id} : WGMemberIdentity, new
         .json(cost_id) )
 }
 
-#[get("/my_wg/costs/{id}")]
+#[get("/my_wg/costs/{id}/detail")]
 async fn get_wg_costs_id(member: WGMemberIdentity, params: web::Path<(i32,)>) -> Result<impl Responder, DatabaseError> {
     let cost = Cost::get_id(member.identity.id, member.wg_id, (*params).0).await?;
 

@@ -4,7 +4,6 @@ use actix_web::{ HttpResponse, Responder, get, http::{header::{self, ContentType
 #[allow(unused_imports)]
 use log::{error, warn, info, debug, trace};
 use lazy_static::lazy_static;
-use serde_json::json;
 use time::{PrimitiveDateTime, OffsetDateTime};
 use super::{db, DB_POOL};
 use pbkdf2::{
@@ -70,7 +69,7 @@ impl std::ops::DerefMut for Identity {
 }
 
 pub struct TryIdentity(pub Option<Identity>);
-pub struct MaybeIdentity(pub Result<Identity, actix_web::Error>);
+pub struct MaybeIdentity(pub Result<Identity, Error>);
 pub struct WGMemberIdentity{
     pub identity: Identity, 
     pub wg_id: i32 
