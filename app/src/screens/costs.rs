@@ -1,6 +1,6 @@
 use common::Cost;
 use dioxus::prelude::*;
-use dioxus_router::Link;
+use dioxus_router::{Link, use_route};
 use rust_decimal::Decimal;
 use crate::{network_types::{HTTP, WGMember, get_upload}, constants::API_URL};
 use time::macros::format_description;
@@ -13,6 +13,17 @@ async fn get_costs(http: HTTP) -> Option<Vec<Cost>> {
 }
 
 pub fn CostScreen(cx: Scope) -> Element {
+
+
+    render!(
+        Router {
+            Route { to: "/",       EntryScreen {}  }
+            Route { to: "/detail", DetailScreen {}  }
+        }
+    )
+}
+
+fn EntryScreen(cx: Scope) -> Element {
     let member = use_shared_state::<WGMember>(cx).unwrap();
     let member = member.read();
     let http = use_context::<HTTP>(cx)?;
@@ -38,8 +49,18 @@ pub fn CostScreen(cx: Scope) -> Element {
     )
 }
 
+fn DetailScreen(cx: Scope)-> Element {
+    let route = use_route(cx);
+    let id = route.query::<i32>()?;
+
+
+}
+
+
+
+// Cost Object
 #[inline_props]
-pub fn CostEntry(cx: Scope, c: Cost) -> Element {
+fn CostEntry(cx: Scope, c: Cost) -> Element {
     let member = use_shared_state::<WGMember>(cx).unwrap();
     let member = member.read();
     let interpreted = interpret_cost(member.identity.id, &c)?;
@@ -86,7 +107,6 @@ pub fn CostEntry(cx: Scope, c: Cost) -> Element {
         }
     )
 }
-
 
 struct InterpretedCost {
     /// how much you pay or are paid when this cost is balanced

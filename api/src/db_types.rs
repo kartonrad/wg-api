@@ -80,7 +80,7 @@ impl UserExt for User {
 #[async_trait]
 pub trait CostExt : Sized {
     async fn get_all_balance(user_id: i32, wg_id: i32, balance_id: i32) -> Result<Vec<Self>, DatabaseError>;
-    async fn get_id(user_id: i32, wg_id: i32, cost_id: i32) -> Result<Self, DatabaseError>;
+    async fn get_id(user_id: i32, wg_id: i32, cost_id: i32) -> Result<Option<Self>, DatabaseError>;
 }
 
 #[async_trait]

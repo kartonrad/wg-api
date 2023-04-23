@@ -445,6 +445,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             .service(get_wg_users_public)
             .service(get_wg_costs)
             .service(post_wg_costs)
+            .service(get_wg_costs_id)
             .service(get_wg_costs_stats)
 
             .service(get_wg_costs_id_shares)
