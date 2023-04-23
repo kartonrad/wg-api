@@ -95,6 +95,10 @@ Every route starts with `/api`
         - First Value: Integer - Debtor Id (id of [User](#intimate-user-object), wrong id's are silently ignored)
         - Second Value: Boolean - Is the debt paid already? (will be force-set to true, if this debtor id is you (poster/creditor) )
         - -Example: `[[1, false], [2, true], [3, false], [69, true]]`
+- GET  `/my_wg/costs/{id}`
+    - url param `{id}` must be id of a [Cost](#cost-object)
+    - id of accessed cost must be in you wg or null will be returned.
+    - Returns a [Cost](#cost-object)
 - GET  `/my_wg/costs/{id}/shares`
     - url param `{id}` must be id of a [Cost](#cost-object) 
     - id of accessed cost must be in you wg or Array will be empty.

@@ -78,7 +78,10 @@ impl UserExt for User {
 
 
 #[async_trait]
-pub trait CostExt : Sized { async fn get_all_balance(user_id: i32, wg_id: i32, balance_id: i32) -> Result<Vec<Self>, DatabaseError>; }
+pub trait CostExt : Sized {
+    async fn get_all_balance(user_id: i32, wg_id: i32, balance_id: i32) -> Result<Vec<Self>, DatabaseError>;
+    async fn get_id(user_id: i32, wg_id: i32, cost_id: i32) -> Result<Self, DatabaseError>;
+}
 
 #[async_trait]
 impl CostExt for Cost {
@@ -96,6 +99,22 @@ impl CostExt for Cost {
         ORDER BY added_on DESC;"#, user_id, wg_id, balance_id)
             .fetch_all(db!()).await.handle()
     }
+
+    async fn get_id(user_id: i32, wg_id: i32, cost_id: i32) -> Result<Option<Self>, DatabaseError> {
+        sqlx::query_as!(Cost, r#"
+        SELECT costs.id, wg_id, name, amount, creditor_id, equal_balances, (pp.id, pp.extension, pp.original_filename, pp.size_kb) as "receit: DBUpload",
+            added_on, ROW(my_share.cost_id, my_share.debtor_id, my_share.paid) as "my_share: DBCostShare",
+            count(*) as nr_shares, sum( CASE WHEN shares.paid = false AND shares.debtor_id != creditor_id THEN 1 ELSE 0 END ) as nr_unpaid_shares
+        FROM costs
+        LEFT JOIN cost_shares as shares ON costs.id = shares.cost_id -- multiple per row
+        LEFT JOIN cost_shares as my_share ON costs.id = my_share.cost_id AND my_share.debtor_id = $1 -- guarranteed to be unique per row, as (cost_id, debtor_id) is PRIMARY
+        LEFT JOIN uploads AS pp ON receit_id = pp.id
+        WHERE wg_id = $2 AND costs.id = $3
+        GROUP BY costs.id, my_share.cost_id, my_share.debtor_id, my_share.paid, pp.id, pp.extension, pp.original_filename, pp.size_kb
+        ORDER BY added_on DESC;"#, user_id, wg_id, cost_id)
+            .fetch_optional(db!()).await.handle()
+    }
+
 }
 
 

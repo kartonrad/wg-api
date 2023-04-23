@@ -128,7 +128,7 @@ async fn get_wg(member: WGMemberIdentity) -> Result<impl Responder, DatabaseErro
 #[get("/wg/{url}")]
 async fn get_wg_public(params: web::Path<(String,)>) -> Result<impl Responder, DatabaseError> {
     //let wg = sqlx::query_as!(WG, "SELECT * FROM wgs WHERE id = $1", wg_id)
-    let wg = WG::get_url(&params.0).await?;
+    let wg = WG::get_url(&(*params).0).await?;
 
     Ok( HttpResponse::Ok()
     .json(wg) )
@@ -205,7 +205,7 @@ async fn get_wg_users(member: WGMemberIdentity) -> Result<impl Responder, Databa
 
 #[get("/wg/{id}/users")]
 async fn get_wg_users_public(params: web::Path<(i32,)>) -> Result<impl Responder, DatabaseError>  {
-    let wg = User::fetch_all_wg(params.0).await?;
+    let wg = User::fetch_all_wg((*params).0).await?;
     
     Ok( HttpResponse::Ok()
     .json(wg) )
@@ -250,9 +250,17 @@ async fn post_wg_costs(WGMemberIdentity{identity, wg_id} : WGMemberIdentity, new
         .json(cost_id) )
 }
 
-#[get("/my_wg/costs/{id}/shares")]
+#[get("/my_wg/costs/{id}")]
 async fn get_wg_costs_id(member: WGMemberIdentity, params: web::Path<(i32,)>) -> Result<impl Responder, DatabaseError> {
-    let shares = CostShare::get_all_cost(params.0, member.wg_id).await?;
+    let cost = Cost::get_id(member.identity.id, member.wg_id, (*params).0).await?;
+
+    Ok( HttpResponse::Ok()
+        .json(cost) )
+}
+
+#[get("/my_wg/costs/{id}/shares")]
+async fn get_wg_costs_id_shares(member: WGMemberIdentity, params: web::Path<(i32,)>) -> Result<impl Responder, DatabaseError> {
+    let shares = CostShare::get_all_cost((*params).0, member.wg_id).await?;
 
     Ok( HttpResponse::Ok()
     .json(shares) )
@@ -271,7 +279,7 @@ async fn put_wg_costs_id_receit(identity: Identity, payload: Multipart, params: 
     trace!("Bozo fields: {:?}", lmaobozo);
 
     if let Some(receitf) = &mut lmaobozo.1[0] {
-        let new_upl = change_upload!("costs", "receit_id", i32)(receitf.move_responsibility(), params.0, identity.wg).await.handle()?;
+        let new_upl = change_upload!("costs", "receit_id", i32)(receitf.move_responsibility(), (*params).0, identity.wg).await.handle()?;
 
         return Ok(HttpResponse::Ok().body( format!("Successfully changed receit\n{:?}", new_upl) ));
     }
@@ -439,7 +447,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             .service(post_wg_costs)
             .service(get_wg_costs_stats)
 
-            .service(get_wg_costs_id)
+            .service(get_wg_costs_id_shares)
             .service(put_wg_costs_id_receit)
             .service(delete_wg_costs_id)
 
