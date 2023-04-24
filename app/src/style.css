@@ -95,6 +95,27 @@ a, a:hover, a:visited {
     overflow-y: scroll;
 }
 
+.header_bar {
+    border-bottom: 2px solid #c6c9d7;
+    background-color: #eff6ff;
+    height: 50px; width: 100%;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    overflow: hidden;
+    padding: 2px;
+
+    box-shadow: 0px -4px 6px #00000056;
+    box-sizing: border-box;
+    z-index: 50;
+    margin-bottom: 10px;
+    position: relative;
+}
+.header_bar a {
+    position: absolute;
+    left: 5px;
+}
+
 .wg_header {
     background-size: cover;
     height: 200px;

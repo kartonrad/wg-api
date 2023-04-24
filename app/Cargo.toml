@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 dioxus = "0.3.2"
 dioxus-router = "0.3.0"
-dioxus-web = "0.3.1"
+dioxus-web = { version = "0.3.1", optional = true }
 futures-lite = "1.13.0"
 reqwest = { version = "0.11.16", features = ["json"]}
 serde = "1.0.160"
@@ -16,3 +16,12 @@ serde_json = "1.0.96"
 common = { path = "../common" }
 rust_decimal = "1.26.1"
 time = { version = "0.3.14", features = ["serde-well-known", "local-offset", "parsing"] }
+dioxus-desktop = { version = "0.3.0", optional = true }
+log = "0.4.17"
+console_log = { version = "1.0.0", features=["color"], optional = true }
+pretty_env_logger = { version = "0.4.0", optional = true}
+
+[features]
+default=["web"]
+web = ["dep:dioxus-web", "dep:console_log"]
+desktop = ["dep:dioxus-desktop", "dep:pretty_env_logger"]

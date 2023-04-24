@@ -4,13 +4,14 @@ use common::auth::LoginInfo;
 use dioxus::{
     prelude::*
 };
-use dioxus_router::{Route, Router, Redirect, Link};
+use dioxus_router::{Route, Router, Redirect, Link, use_router};
+use log::Level;
 
 mod identity_service;
 mod constants;
 pub mod network_types;
 pub mod screens;
-use screens::{home::HomeScreen, costs::CostScreen, chores::ChoreScreen, settings::SettingScreen};
+use screens::{home::HomeScreen, costs::{CostEntryScreen, CostDetailScreen}, chores::ChoreScreen, settings::SettingScreen};
 
 use constants::API_URL;
 use identity_service::LoginEvent;
@@ -18,7 +19,15 @@ use network_types::{WGMember, get_upload};
 
 fn main() {
     // launch the web app
-    dioxus_web::launch(App);
+    #[cfg(feature = "web")]{
+        console_log::init_with_level(Level::Trace).expect("Logging to initialize??");
+        dioxus_web::launch(App);
+    }
+    #[cfg(feature = "desktop")]
+    {
+        pretty_env_logger::init();
+        dioxus_desktop::launch(App);
+    }
 }
 
 // create a component that renders a div with the text "Hello, world!"
@@ -103,9 +112,30 @@ pub fn LoggedInApp<'a>(cx: Scope, member: &'a WGMember) -> Element {
         Router {
             Route { to: "/home",     Layout { HomeScreen  {} }  } // BottomTabs need to be in here for links to work
             Route { to: "/chores",   Layout { ChoreScreen  {} }  }
-            Route { to: "/costs",    Layout { CostScreen  {} }  }
+            Route { to: "/costs",    Layout { CostEntryScreen  {} }  }
+            Route { to: "/costs/detail", Layout { CostDetailScreen  {} }  }
             Route { to: "/settings", Layout { SettingScreen  {} }  }
             Redirect { from: "", to: "/home" }
+        }
+    )
+}
+
+#[inline_props]
+pub fn HeaderBar<'a>(cx: Scope, title: &'a str) -> Element {
+    let router = use_router(cx);
+
+    render!(
+        nav {
+            class: "header_bar",
+
+            a {
+                onclick: |_| {
+                    router.pop_route();
+                },
+
+                "⬅️"
+            }
+            h2 { "{title}" }
         }
     )
 }
