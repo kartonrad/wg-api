@@ -6,6 +6,7 @@ use rust_decimal::Decimal;
 use serde::Deserialize;
 use crate::{network_types::{HTTP, WGMember, get_upload}, constants::API_URL, HeaderBar};
 use time::macros::format_description;
+use time::Month;
 
 async fn get_costs(http: HTTP) -> Option<Vec<Cost>> {
     Some(
@@ -50,17 +51,57 @@ pub fn CostEntryScreen(cx: Scope) -> Element {
     });
     let costs = costs.value()?.to_owned()?;
 
+    let mut cost_obj: Vec<LazyNodes> = vec![];
+    let mut last_year: i32 = costs.get(0)?.added_on.year();
+    let mut last_month: Month = costs.get(0)?.added_on.month();
+    let mut last_week: u8 = costs.get(0)?.added_on.iso_week();
+
+    costs.iter().for_each(|c|{
+        let year: i32 = c.added_on.year();
+        let month: Month = c.added_on.month();
+        let week: u8 = c.added_on.iso_week();
+
+        if week != last_week {
+            cost_obj.push(rsx!(
+                h3 {
+                    class: "cost_seperator",
+                    "KW {week}"
+                }
+            ))
+        }
+        if month != last_month {
+            cost_obj.push(rsx!(
+                h2 {
+                    class: "cost_seperator",
+                    "{month}"
+                }
+            ))
+        }
+        if year != last_year {
+            cost_obj.push(rsx!(
+                h1 {
+                    class: "cost_seperator",
+                    "{year}"
+                }
+            ))
+        }
+
+        cost_obj.push(rsx!(
+            CostEntry {
+                c: c.clone(),
+            }
+        ));
+
+        last_week = week;
+        last_month = month;
+        last_year = year;
+    });
+
     render!( 
         div {
             class: "scroll_container",
 
-            costs.iter().map(|c|
-                rsx!(
-                    CostEntry {
-                        c: c.clone(),
-                    }
-                )
-            )
+            cost_obj.into_iter()
         }
     )
 }
@@ -122,7 +163,7 @@ pub fn CostDetailScreen(cx: Scope) -> Element {
             date = date.to_offset(off);
         }
     }
-    let expanded_date = date.format(&format_description!("[weekday], der [day]. [month repr:long] [year], um [hour]:[minute]:[second] Uhr (GMT [offset_hour]:[offset_minute])")).expect("EE");
+    let expanded_date = date.format(&format_description!("[weekday], der [day]. [month repr:long] [year],\n um [hour]:[minute]:[second] Uhr (GMT [offset_hour]:[offset_minute])")).expect("EE");
 
     // shares
     let share_obj = shares.iter().map(| share | {
@@ -134,7 +175,7 @@ pub fn CostDetailScreen(cx: Scope) -> Element {
             tr {
                 td {
                     i {"{usern}"}
-                    " übernimmt "
+                    if share.paid {" übernahm "} else { " übernimmt " }
                 }
                 td {
                     AmountDisplay {
@@ -142,7 +183,7 @@ pub fn CostDetailScreen(cx: Scope) -> Element {
                         strikethrough: strikethrough,
                     }
                     if share.paid {
-                        rsx!(b { "✅ hat bezahlt" })
+                        rsx!(b { "✅" })
                     }
                 }
             }
@@ -160,11 +201,14 @@ pub fn CostDetailScreen(cx: Scope) -> Element {
                 c: cost
             }
             div {
-                class: "cost_detail_card",
+                class: "cost_detail_date",
+                white_space: "pre",
 
-                "Datum: {expanded_date}"
+                "{expanded_date}"
             }
             table {
+                class: "cost_detail_calculation",
+
                 share_obj
                 hr {}
                 tr {
