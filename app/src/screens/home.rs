@@ -1,15 +1,15 @@
 use dioxus::prelude::*;
 use crate::API_URL;
-use crate::network_types::{WGMember, get_upload};
+use crate::api::{WGMember, upload_to_path};
 
 pub fn HomeScreen(cx: Scope) -> Element {
     let member = use_shared_state::<WGMember>(cx).unwrap();
     let member = member.read();
-    let header = get_upload( member.wg.header_pic.clone()).unwrap_or("/public/img/rejection.jpg".to_string());
-    let profile_pic = get_upload( member.wg.profile_pic.clone()).unwrap_or("/public/img/rejection.jpg".to_string());
+    let header = upload_to_path( member.wg.header_pic.clone()).unwrap_or("/public/img/rejection.jpg".to_string());
+    let profile_pic = upload_to_path( member.wg.profile_pic.clone()).unwrap_or("/public/img/rejection.jpg".to_string());
 
-    let userelems = member.friends.iter().map(|(uid, user)| {
-        let profile_pic = get_upload( user.profile_pic.clone() ).unwrap_or("/public/img/rejection.jpg".to_string());
+    let userelems = member.friends.iter().map(|(_uid, user)| {
+        let profile_pic = upload_to_path( user.profile_pic.clone() ).unwrap_or("/public/img/rejection.jpg".to_string());
         rsx!(
             div {
                 class:"user_card",

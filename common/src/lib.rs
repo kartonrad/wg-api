@@ -6,9 +6,7 @@ use std::fmt::{Display, Formatter};
 
 use serde::{Serialize, Deserialize};
 use rust_decimal::Decimal;
-use time::error::Format;
 use time::OffsetDateTime;
-use rust_decimal_macros::dec;
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct Upload {
@@ -223,6 +221,8 @@ impl BalancingTransaction {
 
 #[test]
 fn test_balance() {
+    use rust_decimal_macros::dec;
+
     let res =
         BalancingTransaction::from_debt_table(
             vec![

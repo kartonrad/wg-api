@@ -1,21 +1,12 @@
-use std::collections::HashMap;
-
 use dioxus::prelude::*;
 use futures_lite::stream::StreamExt;
 use reqwest::header::HeaderMap;
 
-use crate::network_types::WGMember;
-use crate::{LoggedInApp, LoggedOutApp};
+use crate::{api, LoggedInApp, LoggedOutApp};
 use crate::constants::*;
 
-use common::{auth::*, WG, User};
+use common::auth::*;
 
-pub enum IdentityEvent {
-    FetchWg,
-    FetchWgHeader,
-    FetchWgProfilePic,
-    FetchProfilePic
-}
 pub enum LoginEvent {
     Login(LoginInfo), // login user and switch to it
     Logout(String), // remove login from list, and switch to none if that was the selected one
@@ -78,27 +69,6 @@ pub fn IdentityProvider(cx: Scope) -> Element {
     }
 }
 
-async fn get_member(client: reqwest::Client) -> Result<WGMember, reqwest::Error> {
-    let identity: SerdeIdentity = client.get( format!("{}/api/me", API_URL) ).send().await?
-        .json().await?;
-
-    let wg: WG = client.get( format!("{}/api/my_wg", API_URL) ).send().await?
-        .json().await?;
-
-    let mut friendsVec: Vec<User> = client.get( format!("{}/api/my_wg/users", API_URL) ).send().await?
-        .json().await?;
-    let mut friends = HashMap::new();
-    friendsVec.drain(..).for_each( | fr | {
-        friends.insert(fr.id, fr);
-    });
-
-    return Ok(WGMember { 
-        identity: identity.into(), 
-        wg,
-        friends
-    });
-}
-
 #[inline_props]
 pub fn SomeWrapper(cx: Scope, token: Token) -> Element {
     // Responsible for providing the global client for authenticated requests!
@@ -117,7 +87,7 @@ pub fn SomeWrapper(cx: Scope, token: Token) -> Element {
     // Responsible for loading the WG - checking
     let member = use_future(cx, (token,), |_| {
         let meclient = meclient.clone(); // inefficient???? no it uses an internal reference counter!! (banger)
-        get_member(meclient)
+        api::get_member(meclient)
     });
 
     if let Some(member) = member.value() {
@@ -140,14 +110,3 @@ pub fn SomeWrapper(cx: Scope, token: Token) -> Element {
         "Opening WG..."
     )
 }
-
-/* 
-pub fn use_identity_provider(cx: Scope) {
-    use_shared_state_provider::<Option<Identity>>(&cx, || None );
-    
-    async fn profile_service ( rx: UnboundedReceiver<IdentityEvent> ) {
-
-    }
-}
-
-*/

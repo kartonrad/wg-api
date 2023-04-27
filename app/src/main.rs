@@ -9,13 +9,13 @@ use log::Level;
 
 mod identity_service;
 mod constants;
-pub mod network_types;
+pub mod api;
 pub mod screens;
 use screens::{home::HomeScreen, costs::{CostListScreen, CostDetailScreen, CostBalanceDetailScreen, CostStatScreen, CostTallyScreen}, chores::ChoreScreen, settings::SettingScreen};
 
 use constants::API_URL;
 use identity_service::LoginEvent;
-use network_types::{WGMember, get_upload};
+use api::{WGMember, upload_to_path};
 
 fn main() {
     // launch the web app
@@ -162,7 +162,7 @@ pub fn HeaderBar<'a>(cx: Scope, title: &'a str) -> Element {
 pub fn Layout<'a>(cx: Scope, children: Element<'a>) -> Element {
     let member = use_shared_state::<WGMember>(cx).unwrap();
 
-    let upl = get_upload( member.read().wg.header_pic.clone()).unwrap_or("/public/img/rejection.jpg".to_string());
+    let upl = upload_to_path( member.read().wg.header_pic.clone()).unwrap_or("/public/img/rejection.jpg".to_string());
 
     render!(
         div {

@@ -1,62 +1,17 @@
-use common::{BalancingTransaction, Cost, CostShare, RegularDef, RegularSpending, UserDebt};
+use common::{BalancingTransaction, Cost};
 use dioxus::prelude::*;
-use dioxus_router::{Link, Redirect, Route, Router, use_route, use_router};
+use dioxus_router::{Link, use_route};
 use log::trace;
 use rust_decimal::Decimal;
 use serde::Deserialize;
-use crate::{network_types::{HTTP, WGMember, get_upload}, constants::API_URL, HeaderBar, TopTabs};
+use crate::{api::{HTTP, upload_to_path, WGMember}, api, constants::API_URL, HeaderBar, TopTabs, use_api_else_return};
 use time::macros::format_description;
 use time::Month;
 
-async fn get_costs(http: HTTP) -> Option<Vec<Cost>> {
-    Some(
-        http.get( format!("{API_URL}/api/my_wg/costs") ).send().await.ok()?
-            .json().await.ok()?
-    )
-}
-
-async fn get_cost(http: HTTP, id: i32) -> Option<Cost> {
-    Some(
-        http.get( format!("{API_URL}/api/my_wg/costs/{id}/detail") ).send().await.ok()?
-            .json::<Option<Cost>>().await.ok()??
-    )
-}
-
-async fn get_shares(http: HTTP, id: i32) -> Option<Vec<CostShare>> {
-    Some(
-        http.get( format!("{API_URL}/api/my_wg/costs/{id}/shares") ).send().await.ok()?
-            .json::<Vec<CostShare>>().await.ok()?
-    )
-}
-
-// Attention: in the app i call /stats "the Tally", and /over_time "the stats"
-// because that makes way more sense now that i thought of the word "tally"
-async fn get_tally(http: HTTP, id: Option<i32>) -> Option<Vec<UserDebt>> {
-    let qry = if let Some(id) = id {format!("?balance={id}")} else {String::from("")};
-
-    Some (
-        http.get( format!("{API_URL}/api/my_wg/costs/stats{qry}") ).send().await.ok()?
-            .json::<Vec<UserDebt>>().await.ok()?
-    )
-}
-
-async fn get_stats(http: HTTP, period: RegularDef) -> Option<Vec<RegularSpending>> {
-    Some (
-        http.get( format!("{API_URL}/api/my_wg/costs/over_time/{period}") ).send().await.ok()?
-            .json::<Vec<RegularSpending>>().await.ok()?
-    )
-}
-
 pub fn CostListScreen(cx: Scope) -> Element {
-    let member = use_shared_state::<WGMember>(cx).unwrap();
-    let member = member.read();
     let http = use_context::<HTTP>(cx)?;
 
-    let costs =
-    use_future( cx, (), move |_| {  
-        get_costs(http.clone())
-    });
-    let costs = costs.value()?.to_owned()?;
+    let costs = use_api_else_return!(get_costs; cx, http);
 
     let mut cost_obj: Vec<LazyNodes> = vec![];
     let mut last_year: i32 = costs.get(0)?.added_on.year();
@@ -120,11 +75,8 @@ pub fn CostTallyScreen(cx: Scope) -> Element {
     let member = use_shared_state::<WGMember>(cx).unwrap();
     let member = member.read();
 
-    let tally =
-    use_future( cx, (), move |_| {
-        get_tally(http.clone(), None)
-    });
-    let tally = tally.value()?.to_owned()?;
+    let tally_balance_id = None;
+    let tally = use_api_else_return!(get_tally; cx, http, tally_balance_id);
 
     let trx = BalancingTransaction::from_debt_table(tally.clone())
         .expect("db return to be balancable as per shema");
@@ -140,7 +92,7 @@ pub fn CostTallyScreen(cx: Scope) -> Element {
 
     let tally_obj = tally.iter().map(|t| {
         let user = &member.friends[&t.user_id];
-        let profile_pic = get_upload( user.profile_pic.clone() ).unwrap_or("/public/img/rejection.jpg".to_string());
+        let profile_pic = upload_to_path( user.profile_pic.clone() ).unwrap_or("/public/img/rejection.jpg".to_string());
 
         rsx!(
             div {
@@ -185,7 +137,6 @@ struct IdQuery {
 
 pub fn CostDetailScreen(cx: Scope) -> Element {
     let route = use_route(cx);
-    let router = use_router(cx);
 
     let id = match route.query::<IdQuery>() {
         None => { return render!("AHH BULLSHIT NO ID"); }
@@ -193,20 +144,13 @@ pub fn CostDetailScreen(cx: Scope) -> Element {
     }.id;
     let http = use_context::<HTTP>(cx)?;
 
-    let cost =
-        use_future( cx, &(id,), move |(id,)| {
-            get_cost(http.clone(), id)
-        });
-    let cost = cost.value()?.to_owned()?;
+    let cost = use_api_else_return!(get_cost; cx, http, id);
+
     let member = use_shared_state::<WGMember>(cx).unwrap();
     let member = member.read();
     let interpreted = interpret_cost(member.identity.id, &cost)?;
 
-    let shares =
-        use_future( cx, &(id,), move |(id,)| {
-            get_shares(http.clone(), id)
-        });
-    let shares = shares.value()?.to_owned()?;
+    let shares = use_api_else_return!(get_shares; cx, http, id);
 
     let mut date = cost.added_on;
     #[cfg(feature = "web")]
@@ -306,7 +250,7 @@ fn CostEntry(cx: Scope, c: Cost) -> Element {
     let interpreted = interpret_cost(member.identity.id, &c)?;
 
     let user = &member.friends[&c.creditor_id];
-    let profile_pic = get_upload(user.profile_pic.clone()).unwrap_or("".to_string());
+    let profile_pic = upload_to_path(user.profile_pic.clone()).unwrap_or("".to_string());
 
 
     let amt = c.amount.round_dp(2);
@@ -353,8 +297,6 @@ struct InterpretedCost {
     my_gain: Decimal,
     /// how much one share is worth
     single_payment: Decimal,
-    // the costs amount field, again
-    amt: Decimal,
     /// whether this user is the creditor 
     am_creditor: bool
 }
@@ -380,7 +322,7 @@ fn interpret_cost(me_id: i32, cost: &Cost) -> Option<InterpretedCost> {
         my_gain -= if my_share_paid { Decimal::ZERO } else { single_payment };
     }
 
-    return Some(InterpretedCost {my_gain, single_payment, amt, am_creditor});
+    return Some(InterpretedCost {my_gain, single_payment, am_creditor});
 }
 
 #[inline_props]
