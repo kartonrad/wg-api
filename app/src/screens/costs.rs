@@ -1,10 +1,10 @@
-use common::{Cost, CostShare};
+use common::{BalancingTransaction, Cost, CostShare, RegularDef, RegularSpending, UserDebt};
 use dioxus::prelude::*;
 use dioxus_router::{Link, Redirect, Route, Router, use_route, use_router};
 use log::trace;
 use rust_decimal::Decimal;
 use serde::Deserialize;
-use crate::{network_types::{HTTP, WGMember, get_upload}, constants::API_URL, HeaderBar};
+use crate::{network_types::{HTTP, WGMember, get_upload}, constants::API_URL, HeaderBar, TopTabs};
 use time::macros::format_description;
 use time::Month;
 
@@ -29,18 +29,25 @@ async fn get_shares(http: HTTP, id: i32) -> Option<Vec<CostShare>> {
     )
 }
 
-/*
-pub fn CostScreen(cx: Scope) -> Element {
-    render!(
-        Router {
-            Redirect { from: "", to: "/list" }
-            Route { to: "/list",       EntryScreen {}  }
-            Route { to: "/detail", DetailScreen {}  }
-        }
-    )
-}*/
+// Attention: in the app i call /stats "the Tally", and /over_time "the stats"
+// because that makes way more sense now that i thought of the word "tally"
+async fn get_tally(http: HTTP, id: Option<i32>) -> Option<Vec<UserDebt>> {
+    let qry = if let Some(id) = id {format!("?balance={id}")} else {String::from("")};
 
-pub fn CostEntryScreen(cx: Scope) -> Element {
+    Some (
+        http.get( format!("{API_URL}/api/my_wg/costs/stats{qry}") ).send().await.ok()?
+            .json::<Vec<UserDebt>>().await.ok()?
+    )
+}
+
+async fn get_stats(http: HTTP, period: RegularDef) -> Option<Vec<RegularSpending>> {
+    Some (
+        http.get( format!("{API_URL}/api/my_wg/costs/over_time/{period}") ).send().await.ok()?
+            .json::<Vec<RegularSpending>>().await.ok()?
+    )
+}
+
+pub fn CostListScreen(cx: Scope) -> Element {
     let member = use_shared_state::<WGMember>(cx).unwrap();
     let member = member.read();
     let http = use_context::<HTTP>(cx)?;
@@ -97,7 +104,8 @@ pub fn CostEntryScreen(cx: Scope) -> Element {
         last_year = year;
     });
 
-    render!( 
+    render!(
+        TopTabs {}
         div {
             class: "scroll_container",
 
@@ -106,8 +114,72 @@ pub fn CostEntryScreen(cx: Scope) -> Element {
     )
 }
 
+
+pub fn CostTallyScreen(cx: Scope) -> Element {
+    let http = use_context::<HTTP>(cx)?;
+    let member = use_shared_state::<WGMember>(cx).unwrap();
+    let member = member.read();
+
+    let tally =
+    use_future( cx, (), move |_| {
+        get_tally(http.clone(), None)
+    });
+    let tally = tally.value()?.to_owned()?;
+
+    let trx = BalancingTransaction::from_debt_table(tally.clone())
+        .expect("db return to be balancable as per shema");
+    let trx_obj = trx
+        .iter().map(| trx | {
+        let from_u = &member.friends[&trx.from_user_id];
+        let to_u = &member.friends[&trx.to_user_id];
+
+        rsx!(div {
+                "{from_u.name} zahlt {trx.amt} an {to_u.name}!"
+            })
+    });
+
+    let tally_obj = tally.iter().map(|t| {
+        let user = &member.friends[&t.user_id];
+        let profile_pic = get_upload( user.profile_pic.clone() ).unwrap_or("/public/img/rejection.jpg".to_string());
+
+        rsx!(
+            div {
+                class:"user_card",
+                key: "{user.id}",
+
+                div {
+                    class: "avatar",
+                    background_image: "url({API_URL}{profile_pic})",
+                }
+
+                h2 { "{user.name}" }
+                span { "Bekommt noch " AmountDisplay { amt: t.to_recieve } }br {}
+                span { "Und zahlt noch " AmountDisplay { amt: -t.to_pay } }br {}
+                hr {}
+                span { "Das ergibt: " AmountDisplay { amt: t.to_recieve-t.to_pay } }
+            }
+        )
+    });
+
+
+
+    render!(
+        TopTabs {}
+        tally_obj
+        trx_obj
+    )
+}
+
+pub fn CostStatScreen(cx: Scope) -> Element {
+    render!(
+        TopTabs {}
+        "Stat"
+    )
+}
+
+
 #[derive(Deserialize)]
-struct CostDetailScreenQuery {
+struct IdQuery {
     id: i32
 }
 
@@ -115,7 +187,7 @@ pub fn CostDetailScreen(cx: Scope) -> Element {
     let route = use_route(cx);
     let router = use_router(cx);
 
-    let id = match route.query::<CostDetailScreenQuery>() {
+    let id = match route.query::<IdQuery>() {
         None => { return render!("AHH BULLSHIT NO ID"); }
         Some(i) => { i }
     }.id;
@@ -139,7 +211,7 @@ pub fn CostDetailScreen(cx: Scope) -> Element {
     let mut date = cost.added_on;
     #[cfg(feature = "web")]
     { // compile time conditional hook call is fine, because it's not runtime-conditional
-        trace!("Trying to obtain timezone offset via eval");
+    trace!("Trying to obtain timezone offset via eval");
         let eval = dioxus_web::use_eval(cx);
         let res = eval("let tz = new Date().getTimezoneOffset(); console.log('TZ: ',tz); return tz;").get();
 
@@ -220,6 +292,10 @@ pub fn CostDetailScreen(cx: Scope) -> Element {
     )
 }
 
+
+pub fn CostBalanceDetailScreen(cx: Scope) -> Element {
+    render!("BalanceDetail")
+}
 
 
 // Cost Object

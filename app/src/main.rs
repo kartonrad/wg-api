@@ -11,7 +11,7 @@ mod identity_service;
 mod constants;
 pub mod network_types;
 pub mod screens;
-use screens::{home::HomeScreen, costs::{CostEntryScreen, CostDetailScreen}, chores::ChoreScreen, settings::SettingScreen};
+use screens::{home::HomeScreen, costs::{CostListScreen, CostDetailScreen, CostBalanceDetailScreen, CostStatScreen, CostTallyScreen}, chores::ChoreScreen, settings::SettingScreen};
 
 use constants::API_URL;
 use identity_service::LoginEvent;
@@ -112,12 +112,30 @@ pub fn LoggedInApp<'a>(cx: Scope, member: &'a WGMember) -> Element {
         Router {
             Route { to: "/home",     Layout { HomeScreen  {} }  } // BottomTabs need to be in here for links to work
             Route { to: "/chores",   Layout { ChoreScreen  {} }  }
-            Route { to: "/costs",    Layout { CostEntryScreen  {} }  }
+
+            Route { to: "/costs",    Layout { CostListScreen {} }  }
             Route { to: "/costs/detail", Layout { CostDetailScreen  {} }  }
+            Route { to: "/costs/tally", Layout { CostTallyScreen {} }  }
+            Route { to: "/costs/balance", Layout { CostBalanceDetailScreen {} }  }
+            Route { to: "/costs/stats", Layout { CostStatScreen  {} }  }
+
             Route { to: "/settings", Layout { SettingScreen  {} }  }
             Redirect { from: "", to: "/home" }
         }
     )
+}
+
+
+fn TopTabs(cx: Scope) -> Element {
+    cx.render(rsx!(
+        nav {
+            class: "top_tabs",
+
+            Link { to: "/costs",  span {"Einträge"} }
+            Link { to: "/costs/tally",   span {"Stand"} }
+            Link { to: "/costs/stats",span {"Statistik"} }
+        }
+    ))
 }
 
 #[inline_props]

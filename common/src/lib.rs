@@ -1,9 +1,14 @@
 
 pub mod auth;
 
+use std::cmp::Ordering;
+use std::fmt::{Display, Formatter};
+
 use serde::{Serialize, Deserialize};
 use rust_decimal::Decimal;
+use time::error::Format;
 use time::OffsetDateTime;
+use rust_decimal_macros::dec;
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct Upload {
@@ -100,6 +105,136 @@ pub struct UserDebt {
     pub to_recieve: Decimal,
     pub to_pay: Decimal
 }
+impl Into<UserNetDebt> for UserDebt {
+    fn into(self) -> UserNetDebt {
+        UserNetDebt {
+            user_id: self.user_id,
+            net_tally: self.to_recieve-self.to_pay
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct UserNetDebt {
+    pub user_id: i32,
+    pub net_tally: Decimal,
+}
+
+impl Eq for UserNetDebt {}
+
+impl PartialEq<Self> for UserNetDebt {
+    fn eq(&self, other: &Self) -> bool {
+        self.net_tally==other.net_tally
+    }
+}
+
+impl PartialOrd<Self> for UserNetDebt {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for UserNetDebt {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.net_tally.cmp(&other.net_tally)
+    }
+}
+
+#[derive(Debug,Clone)]
+pub struct BalancingError;
+
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub struct BalancingTransaction {
+    pub from_user_id: i32,
+    pub to_user_id: i32,
+    pub amt: Decimal
+}
+impl BalancingTransaction {
+    // Assumption: Die müssen equal balancen können:
+    // Ansonsten gibts den BalancingError!
+    pub fn from_debt_table( table: Vec<UserDebt> ) -> Result<Vec<Self>, BalancingError> {
+        let mut trx = Vec::new();
+
+        let mut net_creditors: Vec<UserNetDebt> = Vec::new();
+        let mut net_debtors: Vec<UserNetDebt> = Vec::new();
+
+        table.into_iter().for_each(| entry | {
+            let net: UserNetDebt = entry.into();
+
+            if net.net_tally.is_sign_positive() && !net.net_tally.is_zero() {
+                net_creditors.push(net);
+            } else if net.net_tally.is_sign_negative() && !net.net_tally.is_zero() {
+                net_debtors.push(net);
+            }
+            // people with zero are filtered out here -> they cause no transactions
+        });
+
+        // sort ist ascending
+        net_creditors.sort_unstable(); // das heißt der beginnt mit kleinen positiven zahlen (itarate: ende bis anfang)
+        net_debtors.sort_unstable();// und der begint mit den großen negativen zahlen (iterate: anfang bis ende)
+        dbg!(&net_debtors, &net_creditors);
+        let mut left_slice = &mut net_creditors[..];
+        let mut i = 0;
+
+        for mut debtor in net_debtors.into_iter() {
+            while debtor.net_tally < Decimal::from(0u8) {
+                i+=1; if i>10 { panic!("AHHH WAY TOO MANY TRX!"); };
+                let creditor = left_slice.last_mut().ok_or(BalancingError)?;
+                let mut creditor_done = false;
+                let ctally = creditor.net_tally;
+                let dtally = -debtor.net_tally;
+
+                let addor =
+                if ctally <= dtally {
+                    // creditor is paid off
+                    creditor_done = true;
+                    ctally
+                } else {
+                    // debtor has paid everything
+                    dtally
+                };
+                dbg!(&creditor, &debtor, ctally, dtally, addor);
+
+                debtor.net_tally += addor;
+                creditor.net_tally -= addor;
+                assert!(debtor.net_tally <= Decimal::from(0u8) );
+                assert!(creditor.net_tally >= Decimal::from(0u8) );
+
+                let ntrx = Self {
+                    from_user_id: debtor.user_id,
+                    to_user_id: creditor.user_id,
+                    amt: addor,
+                };
+                println!("{:?}", ntrx);
+                trx.push(ntrx);
+
+                // down here because of borrow checker rules
+                if creditor_done {
+                    // remove creditor
+                    left_slice = left_slice.split_last_mut().expect("because we checked above that last exists").1;
+                }
+            }
+
+        }
+
+        Ok(trx)
+    }
+}
+
+#[test]
+fn test_balance() {
+    let res =
+        BalancingTransaction::from_debt_table(
+            vec![
+                UserDebt { user_id: 1, to_pay: dec!(0.50), to_recieve: dec!(15.50) },
+                UserDebt { user_id: 2, to_pay: dec!(0.50), to_recieve: dec!(35.50) },
+                UserDebt { user_id: 3, to_pay: dec!(5.50), to_recieve: dec!(55.50) },
+                UserDebt { user_id: 4, to_pay: dec!(75.50), to_recieve: dec!(0.50) },
+                UserDebt { user_id: 5, to_pay: dec!(125.50), to_recieve: dec!(100.50) }
+            ]
+        ).expect("Creating transactions from debt table to succeed");
+    panic!("{:?}", res);
+}
 
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -113,6 +248,32 @@ pub struct Balance {
     pub i_paid: Option<Decimal>,
     pub i_recieved: Option<Decimal>,
     pub my_total_spending: Option<Decimal>
+}
+
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub enum RegularDef {
+    Millennium,
+    Century,
+    Decade,
+    Year,
+    Quarter,
+    Month,
+    Week,
+    Day
+}
+impl Display for RegularDef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RegularDef::Millennium => f.write_str("millennium"),
+            RegularDef::Century =>  f.write_str("century"),
+            RegularDef::Decade =>  f.write_str("decade"),
+            RegularDef::Year =>  f.write_str("year"),
+            RegularDef::Quarter => f.write_str("quarter"),
+            RegularDef::Month =>  f.write_str("month"),
+            RegularDef::Week =>  f.write_str("week"),
+            RegularDef::Day =>  f.write_str("day"),
+        }
+    }
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
