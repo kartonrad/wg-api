@@ -8,46 +8,6 @@ use crate::constants::API_URL;
 
 pub type HTTP = reqwest::Client;
 
-#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-pub struct WGMember {
-    pub identity : IIdentity,
-    pub wg: WG,
-    pub friends: HashMap<i32, User>
-}
-
-pub fn upload_to_path(opt_upload: Option<DBUpload> ) -> Option<String> {
-    if let Some(header) = opt_upload {
-        let header : Option<Upload> = header.into();
-        if let Some(header) = header {
-            return Some(header.into_url());
-        }
-    }
-    
-    None
-}
-
-// REQUESTS
-pub async fn get_member(client: reqwest::Client) -> Result<WGMember, reqwest::Error> {
-    let identity: SerdeIdentity = client.get( format!("{}/api/me", API_URL) ).send().await?
-        .json().await?;
-
-    let wg: WG = client.get( format!("{}/api/my_wg", API_URL) ).send().await?
-        .json().await?;
-
-    let mut friendsVec: Vec<User> = client.get( format!("{}/api/my_wg/users", API_URL) ).send().await?
-        .json().await?;
-    let mut friends = HashMap::new();
-    friendsVec.drain(..).for_each( | fr | {
-        friends.insert(fr.id, fr);
-    });
-
-    return Ok(WGMember {
-        identity: identity.into(),
-        wg,
-        friends
-    });
-}
-
 #[macro_export]
 /// This is a macro to simplify calling async functions defined in wg_app::api.
 ///

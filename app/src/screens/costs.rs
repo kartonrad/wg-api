@@ -4,9 +4,10 @@ use dioxus_router::{Link, use_route};
 use log::trace;
 use rust_decimal::Decimal;
 use serde::Deserialize;
-use crate::{api::{HTTP, upload_to_path, WGMember}, api, constants::API_URL, HeaderBar, TopTabs, use_api_else_return};
+use crate::{api, api::HTTP, constants::API_URL, HeaderBar, TopTabs, use_api_else_return};
 use time::macros::format_description;
 use time::Month;
+use crate::identity_service::{upload_to_path, WGMember};
 
 pub fn CostListScreen(cx: Scope) -> Element {
     let http = use_context::<HTTP>(cx)?;
@@ -60,7 +61,6 @@ pub fn CostListScreen(cx: Scope) -> Element {
     });
 
     render!(
-        TopTabs {}
         div {
             class: "scroll_container",
 
@@ -116,7 +116,6 @@ pub fn CostTallyScreen(cx: Scope) -> Element {
 
 
     render!(
-        TopTabs {}
         tally_obj
         trx_obj
     )
@@ -124,7 +123,6 @@ pub fn CostTallyScreen(cx: Scope) -> Element {
 
 pub fn CostStatScreen(cx: Scope) -> Element {
     render!(
-        TopTabs {}
         "Stat"
     )
 }

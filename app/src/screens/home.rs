@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 use crate::API_URL;
-use crate::api::{WGMember, upload_to_path};
+use crate::identity_service::{upload_to_path, WGMember};
 
 pub fn HomeScreen(cx: Scope) -> Element {
     let member = use_shared_state::<WGMember>(cx).unwrap();
