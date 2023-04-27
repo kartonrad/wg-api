@@ -47,7 +47,7 @@ a, a:hover, a:visited {
     color: unset;
 }
 
-.bottom_tabs a {
+.bottom_tabs a, .top_tabs a {
     font-size: 34px;
     text-decoration: none;
     width: 50px;
@@ -59,7 +59,7 @@ a, a:hover, a:visited {
                 -5px -5px 7px #ffffff;*/
 }
 
-.bottom_tabs a.active {
+.bottom_tabs a.active, .top_tabs a.active {
     font-size: 34px;
     background-color: #b4c3da;
     text-decoration: none;
@@ -71,7 +71,7 @@ a, a:hover, a:visited {
 
 }
 
-.bottom_tabs a span {
+.bottom_tabs a span, .top_tabs a span {
     /*text-shadow: 2px 0px 0px #FFF, -2px 0px 0px #FFF, 0px 2px 0px #FFF, 0px -2px 0px #FFF;*/
     filter: brightness(0.7);
     opacity: 0.7;
@@ -79,7 +79,7 @@ a, a:hover, a:visited {
     top: -1px;
 }
 
-.bottom_tabs a.active span {
+.bottom_tabs a.active span, .top_tabs a.active span {
     filter:none;
     /*text-shadow: 2px 0px 0px #2c00ff, -2px 0px 0px #f00, 0px 2px 0px #09f, 0px -2px 0px #00ffab;*/
     text-shadow: 2px 0px 1px #FFF, -2px 0px 1px #FFF, 0px 2px 1px #FFF, 0px -2px 1px #FFF;
@@ -95,7 +95,7 @@ a, a:hover, a:visited {
     overflow-y: scroll;
 }
 
-.header_bar {
+.header_bar, .top_tabs {
     border-bottom: 2px solid #c6c9d7;
     background-color: #eff6ff;
     height: 50px; width: 100%;
@@ -105,7 +105,7 @@ a, a:hover, a:visited {
     overflow: hidden;
     padding: 2px;
 
-    box-shadow: 0px -4px 6px #00000056;
+    box-shadow: 0px 4px 6px #00000056;
     box-sizing: border-box;
     z-index: 50;
     margin-bottom: 10px;
@@ -115,6 +115,24 @@ a, a:hover, a:visited {
     position: absolute;
     left: 5px;
 }
+.top_tabs {
+    position: sticky;
+    top: 0px;
+    justify-content:
+}
+.top_tabs a {
+ 	flex: 2;
+ 	max-width: 100px;
+ 	font-size: 18px;
+ 	font-weight: bold;
+ 	align-self: stretch;
+ 	display: flex;
+ 	justify-content: center;
+ 	align-items: center;
+ }
+ .top_tabs a.active {
+    font-size: 18px;
+ }
 
 .wg_header {
     background-size: cover;

@@ -15,7 +15,7 @@
   - [x] Entry Detail Screen
     - [ ] Add Reciet view 
   - [x] Tally/Debt Overview Screen
-    - [ ] Add Styles to TopTabs and Transactions
+    - [x] Add Styles to TopTabs and Transactions
     - [ ] Add List of Balances
   - [ ] Balance Detail Screen
   - [ ]  Stat Screen
