@@ -172,11 +172,11 @@ impl BalancingTransaction {
         net_debtors.sort_unstable();// und der begint mit den großen negativen zahlen (iterate: anfang bis ende)
         dbg!(&net_debtors, &net_creditors);
         let mut left_slice = &mut net_creditors[..];
-        let mut i = 0;
+        //let mut i = 0;
 
         for mut debtor in net_debtors.into_iter() {
             while debtor.net_tally < Decimal::from(0u8) {
-                i+=1; if i>10 { panic!("AHHH WAY TOO MANY TRX!"); };
+                //i+=1; if i>10 { panic!("AHHH WAY TOO MANY TRX!"); };
                 let creditor = left_slice.last_mut().ok_or(BalancingError)?;
                 let mut creditor_done = false;
                 let ctally = creditor.net_tally;
@@ -233,7 +233,7 @@ fn test_balance() {
                 UserDebt { user_id: 5, to_pay: dec!(125.50), to_recieve: dec!(100.50) }
             ]
         ).expect("Creating transactions from debt table to succeed");
-    panic!("{:?}", res);
+    //panic!("{:?}", res);
 }
 
 
