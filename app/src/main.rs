@@ -4,18 +4,17 @@ use common::auth::LoginInfo;
 use dioxus::{
     prelude::*
 };
-use dioxus_router::{Route, Router, Redirect, Link, use_router};
+use dioxus_router::{Link, Redirect, Route, Router, use_router};
 use log::Level;
 
 mod identity_service;
 mod constants;
 pub mod api;
 pub mod screens;
-use screens::{home::HomeScreen, costs::{CostListScreen, CostDetailScreen, CostBalanceDetailScreen, CostStatScreen, CostTallyScreen}, chores::ChoreScreen, settings::SettingScreen};
+use screens::{chores::ChoreScreen, costs::{CostBalanceDetailScreen, CostDetailScreen, CostListScreen, CostStatScreen, CostTallyScreen}, home::HomeScreen, settings::SettingScreen};
 
 use constants::API_URL;
-use identity_service::LoginEvent;
-use api::{WGMember, upload_to_path};
+use identity_service::{LoginEvent, upload_to_path, WGMember};
 
 fn main() {
     // launch the web app
@@ -113,11 +112,11 @@ pub fn LoggedInApp<'a>(cx: Scope, member: &'a WGMember) -> Element {
             Route { to: "/home",     Layout { HomeScreen  {} }  } // BottomTabs need to be in here for links to work
             Route { to: "/chores",   Layout { ChoreScreen  {} }  }
 
-            Route { to: "/costs",    Layout { CostListScreen {} }  }
+            Route { to: "/costs",    Layout { TopTabs {} CostListScreen {} }  }
             Route { to: "/costs/detail", Layout { CostDetailScreen  {} }  }
-            Route { to: "/costs/tally", Layout { CostTallyScreen {} }  }
+            Route { to: "/costs/tally", Layout { TopTabs {} CostTallyScreen {} }  }
             Route { to: "/costs/balance", Layout { CostBalanceDetailScreen {} }  }
-            Route { to: "/costs/stats", Layout { CostStatScreen  {} }  }
+            Route { to: "/costs/stats", Layout { TopTabs {}  CostStatScreen  {} }  }
 
             Route { to: "/settings", Layout { SettingScreen  {} }  }
             Redirect { from: "", to: "/home" }
