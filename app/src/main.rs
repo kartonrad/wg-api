@@ -11,6 +11,8 @@ mod identity_service;
 mod constants;
 pub mod api;
 pub mod screens;
+mod time;
+
 use screens::{chores::ChoreScreen, costs::{CostBalanceDetailScreen, CostDetailScreen, CostListScreen, CostStatScreen, CostTallyScreen}, home::HomeScreen, settings::SettingScreen};
 
 use constants::API_URL;

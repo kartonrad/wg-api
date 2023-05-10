@@ -6,6 +6,7 @@ use std::fmt::{Display, Formatter};
 
 use serde::{Serialize, Deserialize};
 use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use time::OffsetDateTime;
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -285,6 +286,20 @@ pub struct RegularSpending {
     pub i_paid: Decimal,
     pub i_recieved: Decimal,
     pub my_total_spending: Decimal
+}
+impl Default for RegularSpending {
+    fn default() -> Self {
+        Self {
+            time_bucket: OffsetDateTime::UNIX_EPOCH,
+            year: 0,
+            week: 0,
+            month: 0,
+            total_unified_spending: dec!(0.0),
+            i_paid: dec!(0.0),
+            i_recieved: dec!(0.0),
+            my_total_spending: dec!(0.0),
+        }
+    }
 }
 
 

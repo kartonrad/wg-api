@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 use futures_lite::stream::StreamExt;
 use reqwest::header::HeaderMap;
 
-use crate::{api, LoggedInApp, LoggedOutApp};
+use crate::{LoggedInApp, LoggedOutApp};
 use crate::constants::*;
 
 use common::auth::*;

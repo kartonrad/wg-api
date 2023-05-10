@@ -1,9 +1,6 @@
 
-use std::collections::HashMap;
+use common::{Balance, Cost, CostShare, RegularDef, RegularSpending, UserDebt};
 
-use common::{auth::IIdentity, Cost, CostShare, DBUpload, RegularDef, RegularSpending, Upload, User, UserDebt, WG};
-use serde::{Deserialize, Serialize};
-use common::auth::SerdeIdentity;
 use crate::constants::API_URL;
 
 pub type HTTP = reqwest::Client;
@@ -34,14 +31,17 @@ pub type HTTP = reqwest::Client;
 /// }
 /// ```
 macro_rules! use_api_else_return {
-    ($func_name : ident; $cx:expr, $http:expr $(, $param:ident)*) => {
+    ($func_name : ident; $cx:expr $(, $param:ident)*) => {
         {
-            use dioxus::prelude::use_future;
+            use dioxus::prelude::{use_future, use_context};
             use crate::api::$func_name;
+            use crate::api::HTTP;
+
+            let http = use_context::<HTTP>($cx)?;
 
              let val =
                 use_future( $cx, &( $($param,)*), move |( $($param,)*)| {
-                    $func_name($http.clone(), $($param,)*)
+                    $func_name(http.clone(), $($param,)*)
                 });
             let val = val.value()?.to_owned()?;
 
@@ -53,9 +53,11 @@ macro_rules! use_api_else_return {
 // Functions intended to be used with the macro:
 
 
-pub async fn get_costs(http: HTTP) -> Option<Vec<Cost>> {
+pub async fn get_costs(http: HTTP, id: Option<i32>) -> Option<Vec<Cost>> {
+    let qry = if let Some(id) = id {format!("?balance={id}")} else {String::from("")};
+
     Some(
-        http.get( format!("{API_URL}/api/my_wg/costs") ).send().await.ok()?
+        http.get( format!("{API_URL}/api/my_wg/costs{qry}") ).send().await.ok()?
             .json().await.ok()?
     )
 }
@@ -85,7 +87,14 @@ pub async fn get_tally(http: HTTP, id: Option<i32>) -> Option<Vec<UserDebt>> {
     )
 }
 
-async fn get_stats(http: HTTP, period: RegularDef) -> Option<Vec<RegularSpending>> {
+pub async fn get_balances(http: HTTP) -> Option<Vec<Balance>> {
+    Some (
+        http.get( format!("{API_URL}/api/my_wg/costs/balance") ).send().await.ok()?
+            .json::<Vec<Balance>>().await.ok()?
+    )
+}
+
+pub async fn get_stats(http: HTTP, period: RegularDef) -> Option<Vec<RegularSpending>> {
     Some (
         http.get( format!("{API_URL}/api/my_wg/costs/over_time/{period}") ).send().await.ok()?
             .json::<Vec<RegularSpending>>().await.ok()?

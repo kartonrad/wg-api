@@ -47,6 +47,10 @@ a, a:hover, a:visited {
     color: unset;
 }
 
+.disable_link {
+    pointer-events: none;
+}
+
 .bottom_tabs a, .top_tabs a {
     font-size: 34px;
     text-decoration: none;
@@ -115,10 +119,9 @@ a, a:hover, a:visited {
     position: absolute;
     left: 5px;
 }
-.top_tabs {
+.top_tabs, .header_bar {
     position: sticky;
     top: 0px;
-    justify-content:
 }
 .top_tabs a {
  	flex: 2;
@@ -168,6 +171,21 @@ a, a:hover, a:visited {
     left: -20px;
     top: 5px;
 }
+
+.avatar span {
+    position: absolute;
+    left: 0px; right: 0px;
+    border-radius: 10px;
+    background-color: white;
+    border: 3px solid #d5d5d5;
+    filter: drop-shadow(0 0 0.75rem #0000009c);
+    display: inline-block;
+    max-width: max-content;
+    text-align: center;
+    bottom: -10px;
+    margin: auto;
+}
+
 /* End wg / user avatars  */
 
 /* SUPERCLASS OF SORTS - transparent glass */
@@ -221,7 +239,7 @@ a, a:hover, a:visited {
     flex: 1;
 }
 
-.cost_card .body span {
+.cost_card .body > span {
     position: relative;
     margin-left: 25px;
 }
@@ -229,6 +247,7 @@ a, a:hover, a:visited {
 .cost_card h4 {
     margin: 0px 0px;
     margin-bottom: 10px;
+    font-size: 15px;
 }
 
 .cost_card .avatar {
@@ -316,11 +335,55 @@ a, a:hover, a:visited {
 
 /* End usercard / wgbody  */
 
+.transaction {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-evenly;
+    position: relative;
+    margin: 20px 0px;
+    background-color: #fff3;
+    backdrop-filter: blur(2px);
+}
+
+.transaction_arrow::before, .transaction_arrow::after {
+    border-top: 40px solid transparent;
+    border-left: 86px solid #00ff108a;
+    border-bottom: 40px solid transparent;
+    content: "";
+    position: absolute;
+    top: -5px;
+    right: -36px;
+    box-sizing: border-box;
+    display: block;
+    width: 0;
+    height: 0;
+}
+
+.transaction .avatar {
+    position: static;
+}
+
+.transaction_arrow {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.transaction_arrow::before {
+    left: -9px;
+}
+
+.transaction_arrow span {
+  position: relative;
+  z-index: 2;
+}
+
+
 .amount_display {
     font-size: 16px;
     font-weight: bold;
     border-radius: 10px;
-    min-width: 68px;
+    /* min-width: 68px; */
     background-color: white;
     border: 3px solid #d5d5d5;
     filter: drop-shadow(0 0 0.75rem #0000009c);
@@ -350,4 +413,12 @@ a, a:hover, a:visited {
 
 .scroll_container {
     padding: 10px;
+    padding-right: 0px;
+}
+
+.weekely_stats {
+    background-color: #ffffffd1;
+    backdrop-filter: blur(2px);
+    stroke-width: 2px;
+    stroke-linecap: round;
 }
