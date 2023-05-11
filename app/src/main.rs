@@ -34,7 +34,7 @@ fn main() {
 // create a component that renders a div with the text "Hello, world!"
 fn App(cx: Scope) -> Element {
     render!(
-        style { include_str!("../src/style.css") }
+        style { include_str!("../dist/post-style.css") }
     
         identity_service::IdentityProvider {}
     )

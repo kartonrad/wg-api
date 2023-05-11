@@ -2771,6 +2771,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "npm_rs"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1454347ca3c562570eff8af4a09445783dc4b7ccd00853390a7f88f76037b55"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "num-bigint"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4978,6 +4987,7 @@ dependencies = [
  "dioxus-web",
  "futures-lite",
  "log",
+ "npm_rs",
  "pretty_env_logger",
  "reqwest",
  "rust_decimal",
