@@ -1,27 +1,247 @@
 #![allow(non_snake_case)]
 
-use std::iter;
+use std::collections::HashMap;
 use std::ops::Sub;
-use common::{Balance, BalancingTransaction, Cost, RegularDef, RegularSpending, UserDebt};
+use common::{Balance, BalancingTransaction, Cost, CostInput, RegularDef, RegularSpending, UserDebt};
 use dioxus::prelude::*;
-use dioxus_router::{Link, use_route};
-use log::trace;
+use dioxus_router::{Link, use_route, use_router};
+use futures_lite::FutureExt;
+use futures_lite::io::split;
+use log::{error, trace};
+use reqwest::header::CONTENT_TYPE;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 use serde::Deserialize;
 use crate::{constants::API_URL, HeaderBar, use_api_else_return};
 use time::macros::format_description;
-use time::{Duration, Month};
+use time::{Duration, Month, OffsetDateTime, PrimitiveDateTime};
 use crate::identity_service::{upload_to_path, WGMember};
 use rust_decimal_macros::dec;
+use time::format_description::well_known::Iso8601;
+use crate::api::HTTP;
+use crate::time::{use_current_utc_time, use_date_to_local_offset, use_local_tz_offset};
+
+pub fn CostNewScreen(cx: Scope) -> Element {
+    let http = use_context::<HTTP>(cx)?;
+    let mmember = use_shared_state::<WGMember>(cx).unwrap();
+    let member = mmember.read();
+    let router = use_router(cx);
+
+    // DATE
+    let mut current_date = use_current_utc_time(cx)?;
+    let utc_offset = use_local_tz_offset(cx)?;
+    use_date_to_local_offset(cx, &mut current_date);
+    let added_on = use_state(cx, || current_date );
+    let added_on_str = added_on.format(format_description!("[year]-[month]-[day]T[hour]:[minute]")).ok()?;
+    trace!("ISO Current date: {added_on_str}");
+
+    // AMOUNT
+    let decimal_str = use_state(cx, || "0.00".to_string());
+    let decimal = Decimal::from_str_exact(decimal_str.get()).unwrap_or(dec!(0.0));
+
+    let on_amount_change = |evt: Event<FormData>| {
+        trace!("WHAT THE HELL");
+        let mut amt = evt.value.clone();
+
+        // Checks if user typed some bullshit character
+        let is_numeric = amt.chars().fold(true, |bool, char| {
+            return bool && (char.is_ascii_digit() || char == '.');
+        });
+
+        if is_numeric {
+            amt = amt.replace(|c: char| !char::is_ascii_digit(&c), "");
+            amt = format!("{amt:0>3}");
+
+            trace!("STEP 1 => {amt}");
+
+            let int_part = &amt[0 .. amt.len()-2];
+            let fract_part = &amt[amt.len()-2..];
+            amt = format!("{int_part}.{fract_part}");
+
+            trace!("STEP 2 => {amt}");
+
+            amt = amt.replace("0", " ").trim_start().replace(" ","0");
+            amt = format!("{amt:0>4}");
+
+            trace!("STEP 3 => {amt}");
+
+            decimal_str.set(amt.clone());
+        } else {
+            trace!("Ignored fool");
+            decimal_str.set(amt.clone());
+        }
+    };
+
+    // DEBTORS
+    let debtors = use_ref(cx, || {
+        let debtors : HashMap<i32, bool> = member.friends.iter().map(|(t, user)| {
+            (t.clone(), true)
+        }).collect();
+        debtors
+    });
+
+    let debtors_selectors = member.friends.clone().into_iter().map(|(t, user)| {
+        let profile_pic = upload_to_path( user.profile_pic.clone() ).unwrap_or("/public/img/rejection.jpg".to_string());
+        let active = *debtors.read().get(&t).unwrap_or(&false);
+
+        rsx!(
+            div {
+                class: "new_cost_debtor",
+                "data-active": "{active}",
+                onclick: move |evt| { let _ = debtors.write().insert(t, !active); },
+
+                div {
+                    class: "avatar",
+                    background_image: "url({API_URL}{profile_pic})",
+                }
+
+                h2 { "{user.name}" }
+            }
+        )
+    });
+
+    // CURRENT STATE ANALYSOS
+    let debtor_list : Vec<i32> = debtors.read().iter().filter(|(t,b)| {**b}).map(|(t, b)| { t.clone() }).collect();
+    let debtor_count = debtor_list.len();
+    let debtor_clearcount = debtor_list.iter().filter(|t| member.identity.id != **t).count();
+
+    // ON SUBMIT
+
+    let send_cost = move |evt: Event<FormData>| {
+        evt.stop_propagation();
+        let me_id = mmember.read().identity.id;
+        cx.spawn({
+            to_owned![router, http, decimal, debtor_list];
+            let added_on = **added_on;
+            let name = evt.values.get("name").unwrap_or(&"Unbenannt >:(".to_string()).to_owned();
+
+            async move {
+                to_owned![added_on, name];
+
+                let req =
+                    http.post(format!("{API_URL}/api/my_wg/costs"))
+                        .header(CONTENT_TYPE, "application/json")
+                        .body(serde_json::to_string(&CostInput {
+                            name: name.to_owned(),
+                            amount: decimal,
+                            added_on: added_on,
+                            debtors: debtor_list.into_iter().map(|i| {(i, i == me_id)}).collect()
+                        }).unwrap_or("inmvalid json ad".to_owned()));
+
+                let result = req.send().await;
+                match result.map(|res| res.error_for_status()) {
+                    Ok(res) => {
+                        trace!("SUCCESSFULLY ADDED ENTRY!");
+                        router.pop_route();
+                    },
+                    Err(err) => {
+                        error!("Couldn't add entry!! {err}");
+                    }
+                }
+            }
+        })
+        //evt.values
+    };
+
+    render!(
+        HeaderBar { title: "Eintrag anlegen", }
+
+        form {
+            onsubmit: send_cost,
+            prevent_default: "onsubmit",
+
+            div {
+                background_color: "rgba(255, 255, 255, 0.35)",
+                //style: "backdrop-filter: blur(2px);",s
+
+                div {
+                    class: "description_and_value_input",
+
+                    textarea {
+                        name: "name",
+                        placeholder: "Beschreibung",
+                        rows: 3,
+                    }
+
+                    input {
+                        r#type: "text",
+                        name: "amount",
+                        value: "{decimal_str}",
+                        oninput: on_amount_change,
+                    }
+                }
+
+                h5 { class: "cost_seperator", "Datum/Uhrzeit:" }
+
+                input {
+                    r#type: "datetime-local",
+                    name: "added_on",
+                    value: "{added_on_str}",
+                    oninput: move |evt: Event<FormData>| {
+                        let ee = &evt.value;
+                        trace!("Trying to parse: {ee}");
+                        added_on.set(
+                            match PrimitiveDateTime::parse(&evt.value.trim(), format_description!("[year]-[month]-[day]T[hour]:[minute]")) {
+                                Ok(date) => date.assume_offset(utc_offset),
+                                Err(err) => {
+                                    trace!("{err}");
+                                    let val = &evt.value;
+                                    trace!("PArsing: {val} - failed!");
+                                    current_date
+                                }
+                            }
+                        )
+                    }
+                }
+
+                h5 { class: "cost_seperator", "Beteiligte:"}
+
+                div {
+                    class: "new_cost_debtors_container",
+                    debtors_selectors
+                }
+
+
+            }
+
+            div {
+                class: "wg_body", // misuse
+
+                if debtor_count>0 {
+                    rsx!(
+                        "Du hast {decimal_str}€ bezahlt"
+                        br {}
+                        "Du bekommst"
+                        AmountDisplay {
+                            amt: decimal / Decimal::from(debtor_count) * Decimal::from(debtor_clearcount)
+                        }
+                        "von den {debtor_count} anderen Beteiligten zurück."
+                    )
+                } else {
+                    rsx!(span { color: "crimson", "Wähle mindestens eine/n Beteiligte/n aus!" })
+                }
+            }
+
+            input {
+                r#type: "submit",
+                value: "Eintrag anlegen!"
+            }
+        }
+    )
+}
 
 pub fn CostListScreen(cx: Scope) -> Element {
     render!(
         CostList {
         }
+        Link {
+            to: "/costs/new",
+            class: "floating_new_button",
+
+            span { "➕" }
+        }
     )
 }
-
 
 pub fn CostTallyScreen(cx: Scope) -> Element {
     let member = use_shared_state::<WGMember>(cx).unwrap();
@@ -68,7 +288,7 @@ pub fn CostStatScreen(cx: Scope) -> Element {
     let stats = use_api_else_return!(get_stats; cx, interval);
 
     let n = 20usize;
-    let mut now = crate::time::use_current_utc_time(cx).unwrap();
+    let mut now = use_current_utc_time(cx).unwrap();
     let mut statpeeker = stats.into_iter().peekable();
     let mut stat_per_week = Vec::new();
 
@@ -222,7 +442,7 @@ pub fn CostDetailScreen(cx: Scope) -> Element {
     let shares = use_api_else_return!(get_shares; cx, id);
 
     let mut date = cost.added_on;
-    crate::time::use_date_to_local_offset(cx, &mut date);
+    use_date_to_local_offset(cx, &mut date);
 
     let expanded_date = date.format(&format_description!("[weekday], der [day]. [month repr:long] [year],\n um [hour]:[minute]:[second] Uhr (GMT [offset_hour]:[offset_minute])")).expect("EE");
 
@@ -362,15 +582,10 @@ fn TransactionEntry(cx: Scope, trx: BalancingTransaction) -> Element {
 
 #[inline_props]
 fn TallyTransactions(cx: Scope, tally: Vec<UserDebt>) -> Element {
-    let member = use_shared_state::<WGMember>(cx).unwrap();
-    let member = member.read();
-
     let trx = BalancingTransaction::from_debt_table(tally.clone())
         .expect("db return to be balancable as per shema");
     let trx_obj = trx
         .iter().map(| trx | {
-        let from_u = &member.friends[&trx.from_user_id];
-        let to_u = &member.friends[&trx.to_user_id];
 
         rsx!(
             TransactionEntry { trx: trx.to_owned() }

@@ -13,7 +13,7 @@ pub mod api;
 pub mod screens;
 mod time;
 
-use screens::{chores::ChoreScreen, costs::{CostBalanceDetailScreen, CostDetailScreen, CostListScreen, CostStatScreen, CostTallyScreen}, home::HomeScreen, settings::SettingScreen};
+use screens::{chores::ChoreScreen, costs::*, home::HomeScreen, settings::SettingScreen};
 
 use constants::API_URL;
 use identity_service::{LoginEvent, upload_to_path, WGMember};
@@ -115,6 +115,7 @@ pub fn LoggedInApp<'a>(cx: Scope, member: &'a WGMember) -> Element {
             Route { to: "/chores",   Layout { ChoreScreen  {} }  }
 
             Route { to: "/costs",    Layout { TopTabs {} CostListScreen {} }  }
+            Route { to: "/costs/new",    Layout { CostNewScreen {} }  }
             Route { to: "/costs/detail", Layout { CostDetailScreen  {} }  }
             Route { to: "/costs/tally", Layout { TopTabs {} CostTallyScreen {} }  }
             Route { to: "/costs/balance", Layout { CostBalanceDetailScreen {} }  }

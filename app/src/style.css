@@ -10,6 +10,11 @@ body {
     background-color: beige;
 }
 
+input, textarea {
+    padding: 5px;
+    border-radius: 10px;
+}
+
 #main {
     min-width: 230px;
     max-width: 550px;
@@ -421,4 +426,85 @@ a, a:hover, a:visited {
     backdrop-filter: blur(2px);
     stroke-width: 2px;
     stroke-linecap: round;
+}
+
+.floating_new_button {
+    position: sticky;
+    bottom: 19px;
+    right: 0;
+    border-radius: 192px;
+    width: 70px;
+    height: 70px;
+    margin: 15px;
+    display: block;
+    text-align: center;
+    background-color: #2cae64;
+    font-size: 48px;
+    color: white;
+    filter: drop-shadow(0 0 1rem #000000f7);
+    border: 2px solid #007729;
+    float: right;
+}
+
+.floating_new_button span {
+    color: transparent;
+    background-color: white;
+    background-clip: text;
+    filter: drop-shadow(0 0 1rem #000000b0);
+}
+
+.description_and_value_input {
+    display: flex;
+}
+
+.description_and_value_input input{
+    width: 80px;
+    align-self: flex-start;
+    position: relative;
+}
+
+/*.description_and_value_input input::before{
+    content: "€";
+    position: absolute;
+    right: 0px;
+    color: #808080;
+    font-size: 10px;
+}*/
+
+.description_and_value_input textarea {
+    flex: 1;
+    resize: none;
+}
+
+.new_cost_debtors_container {
+     display: flex;
+     flex-direction: row;
+     flex-wrap: wrap;
+     justify-content: space-evenly;
+}
+
+.new_cost_debtor {
+  display: flex;
+  flex-direction: row;
+  background-color: white;
+  width: max-content;
+  min-width: 120px;
+  padding: .5em;
+  margin: 1em;
+}
+
+.new_cost_debtor[data-active="true"] {
+  background-color: green;
+  color: white;
+}
+
+.new_cost_debtor .avatar {
+  width: 40px;
+  height: 40px;
+  position: static;
+}
+
+.new_cost_debtor h2 {
+  font-size: 16px;
+  margin-left: .5em;
 }
