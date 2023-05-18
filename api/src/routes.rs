@@ -213,6 +213,8 @@ async fn get_wg_users_public(params: web::Path<(i32,)>) -> Result<impl Responder
 
 #[get("/my_wg/costs")]
 async fn get_wg_costs(member: WGMemberIdentity, query: web::Query<BalanceInput>) -> Result<impl Responder, DatabaseError> {
+    // TODO MIGRATION STRAT: Dings endpunkt mit enum CostOrTrx rückgabe
+    // er fetched von beiden tabellen und mischt die dann hier in die richtige reihenfolge!
     let cost = Cost::get_all_balance(member.identity.id, member.wg_id, query.balance.unwrap_or(0)).await?;
 
     Ok( HttpResponse::Ok()
@@ -347,6 +349,9 @@ async fn post_wg_costs_balance(WGMemberIdentity{identity, wg_id} : WGMemberIdent
 async fn get_wg_costs_balance(identity: Identity) -> Result<impl Responder, DatabaseError> {
     let costs_opt =
     if let Some(wg_id)  = identity.wg {
+        /// TODO Migration Strat: rename to "i_paid_cost, i_recieved_cost" and add "i_paid_trx, i_recieved_trx"
+        /// This will make sure that info is there
+
         let balances = sqlx::query_as!(Balance, r#"
         SELECT equal_balances.id, equal_balances.balanced_on, equal_balances.initiator_id, equal_balances.wg_id, 
             coalesce( sum(costs.amount), 0) as total_unified_spending,
@@ -388,6 +393,7 @@ async fn get_wg_costs_over_time(member: WGMemberIdentity, params: web::Path<(Str
         my_total_spending: Option<Decimal>
     }
 
+    // needs no modification for trx
     let balances = sqlx::query_as!(DBRegularSpending, r#"
     SELECT
         date_trunc($3, added_on) as time_bucket ,

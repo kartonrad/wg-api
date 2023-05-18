@@ -261,6 +261,15 @@ pub fn CostTallyScreen(cx: Scope) -> Element {
     render!(
         Tallys {
         }
+        Link {
+            to: "/costs/balance/confirm",
+
+            div {
+                background_color: "green",
+                color: "white",
+                "Komplett abrechnen"
+            }
+        }
         //trx_obj
         h3 {
             class: "cost_seperator",
@@ -530,6 +539,62 @@ pub fn CostBalanceDetailScreen(cx: Scope) -> Element {
 
         CostList {
             balance_id: id
+        }
+    )
+}
+
+pub fn CostBalanceConfirmScreen(cx: Scope) -> Element {
+    let router = use_router(cx);
+    let http = use_context::<HTTP>(cx)?;
+
+    let send_balance = move |evt: Event<MouseData>| {
+        evt.stop_propagation();
+        cx.spawn({
+            to_owned![router, http];
+
+            async move {
+                let req = http.post(format!("{API_URL}/api/my_wg/costs/balance"));
+                let result = req.send().await;
+                match result.map(|res| res.error_for_status()) {
+                    Ok(res) => {
+                        trace!("SUCCESSFULLY ADDED BALANCE!");
+                        router.pop_route();
+                    },
+                    Err(err) => {
+                        error!("Couldn't add entry!! {err}");
+                    }
+                }
+            }
+        })
+        //evt.values
+    };
+
+    render!(
+        div {
+            background_color: "crimson",
+            position: "fixed",
+            top: "0",
+            left: "0",
+            right: "0",
+            bottom: "0",
+            text_align: "center",
+            color: "white",
+
+            h2 { "Willst du wirklich alles abrechnen?" }
+            h4 { "Der aktuelle Unterschied wird auf 0 gesetzt." }
+
+            button {
+                value: "JA",
+                onclick: send_balance,
+
+                "JA"
+            }
+            button {
+                value: "Nein",
+                onclick: move |_| {router.pop_route();},
+
+                "Nein"
+            }
         }
     )
 }

@@ -165,6 +165,8 @@ impl UserDebtExt for UserDebt {
 
             finally, they are both joined.
         */
+
+        // TODO Migration strategy: UNION the trx table to the debt table (debtor_id, creditor_id, owed)
         let dtrs: Vec<DebtTableRecord> = sqlx::query_as!( DebtTableRecord , r#"
             WITH debt_table AS (                                                           
                 SELECT debtor_id, creditor_id, (amount/nr_shares)::NUMERIC(16,2) as owed

@@ -119,6 +119,7 @@ pub fn LoggedInApp<'a>(cx: Scope, member: &'a WGMember) -> Element {
             Route { to: "/costs/detail", Layout { CostDetailScreen  {} }  }
             Route { to: "/costs/tally", Layout { TopTabs {} CostTallyScreen {} }  }
             Route { to: "/costs/balance", Layout { CostBalanceDetailScreen {} }  }
+            Route { to: "/costs/balance/confirm", CostBalanceConfirmScreen {} }
             Route { to: "/costs/stats", Layout { TopTabs {}  CostStatScreen  {} }  }
 
             Route { to: "/settings", Layout { SettingScreen  {} }  }
@@ -126,6 +127,7 @@ pub fn LoggedInApp<'a>(cx: Scope, member: &'a WGMember) -> Element {
         }
     )
 }
+
 
 
 fn TopTabs(cx: Scope) -> Element {
