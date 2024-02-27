@@ -248,7 +248,9 @@ pub struct Balance {
     pub total_unified_spending: Option<Decimal>,
     pub i_paid: Option<Decimal>,
     pub i_recieved: Option<Decimal>,
-    pub my_total_spending: Option<Decimal>
+    pub my_total_spending: Option<Decimal>,
+    pub i_recieved_trx: Option<Decimal>,
+    pub i_paid_trx: Option<Decimal>,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]

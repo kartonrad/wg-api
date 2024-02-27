@@ -751,7 +751,7 @@ fn BalanceEntry( cx: Scope, b: Balance) -> Element {
 
                     "Bilanz:" br {}
                     AmountDisplay {
-                        amt: b.i_recieved?-b.i_paid?,
+                        amt: b.i_recieved?-b.i_paid?+b.i_recieved_trx?-b.i_paid_trx?,
                     }
                 }
             }

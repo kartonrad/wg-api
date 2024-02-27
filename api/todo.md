@@ -8,9 +8,9 @@
 ### Priority
 * Add trx table
 * Change GEt /my_wg/costs or add another to take enum
-* Change GET /my_wg/costs/stats (tally) to union trxs
-* Change GET /my_wg/costs/balances to also aggregate trxs
-* make no changes to over_time, that shit is fine
+* Change GET /my_wg/costs/stats (tally) to union trxs ✅
+* Change GET /my_wg/costs/balances to also aggregate trxs ✅
+* make no changes to over_time, that shit is fine ✅
 * add endpoints to add and remove trxs
 
 ***

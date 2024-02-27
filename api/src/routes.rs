@@ -357,7 +357,8 @@ async fn get_wg_costs_balance(identity: Identity) -> Result<impl Responder, Data
             coalesce( sum(costs.amount), 0) as total_unified_spending,
             coalesce( sum( CASE WHEN costs.paid = false AND costs.debtor_id != costs.creditor_id THEN (costs.amount/costs.nr_shares)::NUMERIC(16,2) ELSE 0 END ), 0) as i_paid,
             coalesce( sum( CASE WHEN creditor_id = $2 THEN (costs.amount/costs.nr_shares*costs.nr_unpaid_shares)::NUMERIC(16,2) ELSE 0 END ), 0) as i_recieved,
-            coalesce( sum( CASE WHEN costs.paid IS NOT NULL THEN (costs.amount/costs.nr_shares)::NUMERIC(16,2) ELSE 0 END ), 0) AS my_total_spending
+            coalesce( sum( CASE WHEN costs.paid IS NOT NULL THEN (costs.amount/costs.nr_shares)::NUMERIC(16,2) ELSE 0 END ), 0) AS my_total_spending,
+	        coalesce( trxs.i_recieved_trx, 0) as i_recieved_trx, coalesce( trxs.i_paid_trx, 0) as i_paid_trx
         FROM equal_balances
         LEFT JOIN (
             SELECT id, amount, creditor_id, added_on, equal_balances, my_share.paid, my_share.debtor_id,
@@ -368,8 +369,17 @@ async fn get_wg_costs_balance(identity: Identity) -> Result<impl Responder, Data
             WHERE wg_id = $1
             GROUP BY costs.id, my_share.cost_id, my_share.paid, my_share.debtor_id
         ) AS costs ON costs.equal_balances = equal_balances.id
+        LEFT JOIN (
+            SELECT
+                sum(CASE WHEN creditor_id = $2 THEN transactions.amount ELSE 0 END) as i_recieved_trx,
+                sum(CASE WHEN debtor_id   = $2 THEN transactions.amount ELSE 0 END) as i_paid_trx,
+                equal_balances
+            FROM transactions
+            WHERE wg_id = $1
+            GROUP BY equal_balances
+        ) AS trxs ON trxs.equal_balances = equal_balances.id
         WHERE wg_id = $1
-        GROUP BY equal_balances.id, equal_balances.balanced_on, equal_balances.initiator_id, equal_balances.wg_id
+        GROUP BY equal_balances.id, equal_balances.balanced_on, equal_balances.initiator_id, equal_balances.wg_id, trxs.i_recieved_trx, trxs.i_paid_trx
         ORDER BY equal_balances.balanced_on DESC;"#,  wg_id, identity.id)
             .fetch_all(db!()).await?;
 
