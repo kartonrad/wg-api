@@ -11,7 +11,7 @@ time = { version = "0.3.14", features = ["serde-well-known", "local-offset", "pa
 rust_decimal = "1.26.1"
 rust_decimal_macros = "1.29.1"
 
-sqlx = { version = "0.6.2", default-features = false, optional = true }
+sqlx = { version = "0.7.3", optional = true }
 
 [features]
 sqlx = ["dep:sqlx"]

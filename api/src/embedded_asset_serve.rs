@@ -1,5 +1,6 @@
 use rust_embed::RustEmbed;
 use actix_web::{get, Responder, web::{self, Bytes}, HttpResponse};
+use log::trace;
 
 #[derive(RustEmbed)]
 #[folder = "src/public/"]

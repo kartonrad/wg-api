@@ -7,18 +7,15 @@ authors = ["Kartonrad <hi@kartonrad.de>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix-web = "4.2.1"
+
 actix-files = "0.6.2"
-actix-cors = "0.6.3"
 tokio =  { version = "1.24.2", features = ["fs"] }
 actix-multipart = "0.4.0"
 rust-embed = "6.4.2"
 mime_guess = "2.0.4"
 
-sqlx = { version = "0.6.2", default-features = false, features = [ "offline", "runtime-tokio-rustls", "macros", "postgres", "json", "tls", "time", "migrate", "decimal" ] }
 rust_decimal = "1.26.1"
 
-lazy_static = "1.4.0"
 async_once = "0.2.6"
 futures-util = "0.3.24"
 array-macro = "2.1.5"
@@ -27,10 +24,8 @@ thiserror = "1.0.37"
 
 common = { path = "../common", features = ["sqlx"] }
 
-serde = { version = "1.0.160", features = ["derive"] }
 serde_json = "1.0.96"
 serde_with = "2.0.1"
-time = { version = "0.3.14", features = ["serde-well-known", "local-offset", "parsing"] }
 
 jsonwebtoken = "8.1.1"
 pbkdf2 = { version = "0.11.0" }
@@ -38,7 +33,19 @@ password-hash = { version = "0.4", features = ["alloc", "std"] }
 base64 = "0.13.1"
 
 listenfd = "1.0.0"
-log = "0.4.17"
+
 pretty_env_logger = "0.4.0"
-dotenvy = "0.15.5"
+
 async-trait = "0.1.68"
+
+juniper = "0.15.11"
+actix-web = "4.4.0"
+actix-cors = "0.6.5"
+actix-web-lab = "0.20.1"
+env_logger = "0.10.1"
+log = "0.4.20"
+lazy_static = "1.4.0"
+sqlx = { version = "0.7.3", features = [ "macros", "postgres", "json", "time", "migrate", "runtime-tokio", "tls-rustls", "bigdecimal"  ] }
+dotenvy = "0.15.7"
+serde = "1.0.197"
+time = { version = "0.3.34", features = ["serde-well-known", "local-offset", "parsing"] }

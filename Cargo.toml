@@ -1,3 +1,4 @@
 [workspace]
 members = ["api", "app", "common"]
 default_members = ["api"]
+resolver = "2"

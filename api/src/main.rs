@@ -1,121 +1,86 @@
-// Following guide:: https://cloudmaker.dev/how-to-create-a-rest-api-in-rust/
+//! Actix Web juniper example
+//!
+//! A simple example integrating juniper in Actix Web
 
-//--comfort features
-//auto restart
-use listenfd::ListenFd;
-//env vars
-use dotenvy::dotenv;
+extern crate core;
 
-//pretty logs
-extern crate pretty_env_logger;
-#[macro_use] extern crate log;
-use std::fs::{create_dir_all, remove_dir_all};
-#[allow(unused_imports)]
-use std::{env, io::Error};
+use std::{io, sync::Arc};
+use std::str::FromStr;
 
-//--IMPORT-ANT IMPORTS
-use actix_web::{App, HttpServer, Responder, get, middleware::Logger};
-use sqlx::{postgres::{PgPool, PgPoolOptions}};
-use lazy_static::lazy_static;
-use async_once::AsyncOnce;
 use actix_cors::Cors;
+use actix_web::{
+    get, middleware, route,
+    web::{self, Data},
+    App, HttpResponse, HttpServer, Responder,
+};
+use actix_web_lab::respond::Html;
+use juniper::http::{graphiql::graphiql_source, GraphQLRequest};
+use sqlx::PgPool;
+use crate::auth::{TryIdentity};
 
-/* 
-use time::{OffsetDateTime, UtcOffset};
-use std::{env, fs::{read_to_string, read_dir}, fmt::Display};
-use rust_decimal::prelude::*;*/
-
-pub mod file_uploads;
+pub mod schema;
+// pub mod file_uploads;
 pub mod auth;
-pub mod routes;
+//pub mod routes;
 pub mod embedded_asset_serve;
-pub mod db_types;
+//pub mod db_types;
 
-//-------ROUTES
-#[get("/")]
-async fn genesis() -> impl Responder {
-    trace!("Greeting User");
-    return "✨ New Rust🦀 Project! ✨"
+use crate::schema::{AppContext, create_schema, Schema};
+
+/// GraphiQL playground UI
+#[get("/graphiql")]
+async fn graphql_playground() -> impl Responder {
+    Html(graphiql_source("/graphql", None))
 }
 
-lazy_static! {
-    static ref DB_POOL: AsyncOnce<PgPool> = AsyncOnce::new(async{
-        init_db().await
-    });
-}
-async fn init_db() -> PgPool {
-    // Create a connection pool
-    info!("Initializing Database Pool...");
-    let pool = PgPoolOptions::new()
-            .max_connections(5)
-            .connect(&env::var("DATABASE_URL").unwrap()).await.unwrap();
-    pool
-}
-#[macro_export]
-macro_rules! db {
-    () => {
-        DB_POOL.get().await
+/// GraphQL endpoint
+#[route("/graphql", method = "GET", method = "POST")]
+async fn graphql(st: web::Data<Schema>, db_pool: web::Data<PgPool>, data: web::Json<GraphQLRequest>, identity: TryIdentity) -> impl Responder {
+    let ctx = AppContext {
+        authenticated_user: identity.0,
+        db_pool: db_pool.get_ref().clone(),
+        server_origin: "localhost:8080".to_string()
     };
+    let user = data.execute(&st, &ctx).await;
+    HttpResponse::Ok().json(user)
 }
 
-///------INIT^
-#[allow(unreachable_code)]
 #[actix_web::main]
-async fn main() -> Result<(),std::io::Error> {
-    dotenv().ok();
-    pretty_env_logger::init();
-    info!("Hello, world!");
+async fn main() -> io::Result<()> {
+    dotenvy::dotenv().ok();
+    env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
 
-    // Migrate db
-    info!("Migrating Database...");
-    sqlx::migrate!().run(db!()).await.map_err(|err| Error::new(std::io::ErrorKind::Other, format!("{:?}", err)))?;
+    // Create Juniper schema
+    let schema = Arc::new(create_schema());
 
-    // Create and Clear CLEAR temp-uploads folder
-    create_dir_all("uploads/temp")?;
-    remove_dir_all("uploads/temp")?;
-    create_dir_all("uploads/temp")?;
+    log::info!("starting HTTP server on port 8080");
+    log::info!("GraphiQL playground: http://localhost:8080/graphiql");
 
-    // Setup Server
-    let mut server = HttpServer::new( || {
+    let server_host = std::env::var("BIND_HOST").unwrap_or("127.0.0.1".to_string());
+    let server_port = u16::from_str(
+        &std::env::var("BIND_PORT").unwrap_or("8080".to_string())
+    ).expect("BIND_PORT Variable to be a number");
+
+    let pool = sqlx::PgPool::connect(
+        &std::env::var("DATABASE_URL").expect("Enviroment Variable DATABASE_URL is required")
+    ).await.expect("Postgres failed to connect");
+
+    // Start HTTP server
+    HttpServer::new(move || {
         App::new()
-            .wrap(Cors::permissive())
-            .wrap(Logger::new(r#"[%a] "%r" %s %bb "%{Referer}i" "%{User-Agent}i" %Dms"#))
+            .app_data(Data::from(schema.clone()))
+            .app_data(web::Data::new(pool.clone()))
             .configure(auth::config)
             .configure(embedded_asset_serve::config)
-            .configure(routes::config)
-            .service(genesis)
-            //.service(actix_files::Files::new("/uploads", "uploads").show_files_listing())
-            .service(file_uploads::get_uploads_service)
-    } );
-
-    // take over socket from old process, if available
-    let mut listenfd = ListenFd::from_env();
-    server = match listenfd.take_tcp_listener(0)? {
-        Some(listener) => {
-            info!("Reusing Socket for: http://{}", listener.local_addr()?.to_string());
-            server.listen(listener)?
-        },
-        None => {
-            // Bind to Adress specified in .env
-            let host = env::var("HOST").expect("Host not set");
-            let port = env::var("PORT").expect("Port not set");
-            info!("Binding Server to http://{}:{}", host, port);
-            server.bind(format!("{}:{}", host, port))?
-        }
-    };
-
-    //block 
-    server.run().await.into()
+            .service(graphql)
+            .service(graphql_playground)
+            //.service(file_uploads::get_uploads_service)
+            // the graphiql UI requires CORS to be enabled
+            .wrap(Cors::permissive())
+            .wrap(middleware::Logger::default())
+    })
+        .workers(2)
+        .bind((server_host, server_port))?
+        .run()
+        .await
 }
-
-/*fn handle_err_except_duplicate(err: sqlx::Error) -> Result<(), sqlx::Error>{
-    if let Some(db_err) = err.as_database_error() {
-        if let Some(err_code) = db_err.code() {
-            if err_code == "23505" {
-                trace!("Report Group already in database.");
-                return Ok(());
-            } 
-        }
-    } 
-    Err(err)
-}*/

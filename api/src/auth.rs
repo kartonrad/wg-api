@@ -5,7 +5,6 @@ use actix_web::{ HttpResponse, Responder, get, http::{header::{self, ContentType
 use log::{error, warn, info, debug, trace};
 use lazy_static::lazy_static;
 use time::{PrimitiveDateTime, OffsetDateTime};
-use super::{db, DB_POOL};
 use pbkdf2::{
     password_hash::{
         rand_core::OsRng,
@@ -22,6 +21,7 @@ use actix_web::{
     Error,
 };
 use futures_util::{future::LocalBoxFuture, FutureExt};
+use sqlx::PgPool;
 
 // ================================================================================== CONSTS/STATICS ==================================================================================
 const JWT_ALGO: Algorithm = Algorithm::HS256;
@@ -54,6 +54,7 @@ struct JWTClaims {
 
 // Newtype pattern 🥴
 use common::auth::*; // inner identity from here
+#[derive(Clone, Debug)]
 pub struct Identity(pub IIdentity);
 //deref bullshit
 impl std::ops::Deref for Identity {
@@ -173,10 +174,10 @@ async fn classist(auth: MaybeIdentity) -> impl Responder {
 }
 
 #[post("/login")]
-async fn login_handler(conn: ConnectionInfo, login_info: web::Json<LoginInfo>) -> Result<impl Responder, Error> {
+async fn login_handler(conn: ConnectionInfo, login_info: web::Json<LoginInfo>, db_pool: web::Data<PgPool>) -> Result<impl Responder, Error> {
     trace!("Requestee {:?} attempting to log in with: {}", conn.realip_remote_addr(), login_info.username); // trust realip
 
-    let jwt = login(login_info.into_inner()).await?;
+    let jwt = login(login_info.into_inner(), db_pool.get_ref()).await?;
 
     Ok( HttpResponse::Ok().json(Token {
         token: jwt,
@@ -185,10 +186,10 @@ async fn login_handler(conn: ConnectionInfo, login_info: web::Json<LoginInfo>) -
 }
 
 #[get("/login_unsafe")]
-async fn unsafe_login_handler(conn: ConnectionInfo, login_info: web::Query<LoginInfo>) -> Result<impl Responder, Error> {
-    trace!("Requestee {:?} attempting to log in with: {}", conn.realip_remote_addr(), login_info.username); // trust realip
+async fn unsafe_login_handler(conn: ConnectionInfo, login_info: web::Query<LoginInfo>, db_pool: web::Data<PgPool>) -> Result<impl Responder, Error> {
+    trace!("Requester {:?} attempting to log in with: {}", conn.realip_remote_addr(), login_info.username); // trust realip
 
-    let jwt = login(login_info.into_inner()).await?;
+    let jwt = login(login_info.into_inner(), db_pool.get_ref()).await?;
 
     Ok( HttpResponse::Ok()
         .cookie(
@@ -231,10 +232,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
 
 // ================================================================================== AUTH Logic ==================================================================================
 // Login 
-async fn login ( login_info: LoginInfo ) -> Result<String, LoginError> {
+async fn login (login_info: LoginInfo, db_pool: &PgPool ) -> Result<String, LoginError> {
     // Match a user
     let user = sqlx::query_as!(IIdentity, "SELECT * FROM users WHERE username = $1;", login_info.username)
-        .fetch_one(db!()).await
+        .fetch_one(db_pool).await
         .map_err( |db_err| {
             match db_err {
                 sqlx::Error::RowNotFound => LoginError::WrongCredentials,
@@ -262,7 +263,7 @@ async fn login ( login_info: LoginInfo ) -> Result<String, LoginError> {
     }).await?
 }
 
-async fn authenticate(provided_token : &str) -> Result<TryIdentity, AuthError> {
+async fn authenticate(provided_token : &str, db_pool: &PgPool) -> Result<TryIdentity, AuthError> {
     // Block on JWT Decode
     let provided_token = provided_token.to_owned();
     let token_d = 
@@ -272,7 +273,7 @@ async fn authenticate(provided_token : &str) -> Result<TryIdentity, AuthError> {
     
     
     let user = sqlx::query_as!(IIdentity, "SELECT * FROM users WHERE id = $1;", token_d.claims.auth_as)
-        .fetch_one( db!()).await
+        .fetch_one( db_pool).await
         .map_err(|e| match e {
             sqlx::Error::RowNotFound => AuthError::ObjectGone,
             _ => AuthError::Database(e),
@@ -299,14 +300,19 @@ impl FromRequest for TryIdentity {
     fn extract(req: &HttpRequest) -> Self::Future { 
         let req = req.clone();
 
+
         async move {
+            let db_pool: Option<&web::Data<PgPool>> = req.app_data();
+            let db_pool = db_pool
+                .ok_or(auth_error::<String>(None, "No Db Pool in App Data!"))?.get_ref();
+
             match req.cookie(&cookie_name("auth_token")) {
-                Some(auth_cookie) => Ok( authenticate(auth_cookie.value()).await? ),
+                Some(auth_cookie) => Ok( authenticate(auth_cookie.value(), db_pool).await? ),
                 None => match req.headers().get(header::AUTHORIZATION) {
                     Some(auth_header) => {
                         let auth_header = auth_header.to_str().map_err(|e |auth_error(Some(e), "Failed to parse Auth-Header!"))?;
                         if let Some( provided_token ) = auth_header.strip_prefix("Bearer ") {
-                            Ok( authenticate(provided_token).await? )
+                            Ok( authenticate(provided_token, db_pool).await? )
                         } else {
                             Err( auth_error::<String>(None, "Support only for BEARER Authentication! Make a request to /auth/login or /auth/register to obtain token!") )
                         }
