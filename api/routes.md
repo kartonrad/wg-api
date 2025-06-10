@@ -88,6 +88,7 @@ Every route starts with `/api`
     - Return Array of [Costs](#cost-object)
 - **POST** `/my_wg/costs`
     - Creates a new Cost, and all it's Shares according to the `debtors` field
+    - `on_behalf_of_user_id`: Number or Undefined (Userid of the User this is posted for)
     - `name`: String
     - `amount`: Number (Decimal Value, preferrably only two digits behind comma)
     - `added_on`: DateTime in iso8601 format (js: `new Date().toISOString()`, example: `2022-11-16T00:01:42.763Z`)
@@ -170,6 +171,7 @@ Maps exactly onto the `costs` Table in the Database, except for the last three f
 - `name`: String
 - `amount`: (Decimal) Number as **String**!!
 - `creditor_id`: Integer (id of [User](#intimate-user-object))
+- `poster_id`: Integer (id of [User](#intimate-user-object))
 - `added_on`: DateTime in RFC3339 Format (example: `"2019-10-12T07:20:50.52Z"`
 - `equal_balances`: Integer (id of Balance) or null
 - `receit`: [Upload](#upload-object) or null

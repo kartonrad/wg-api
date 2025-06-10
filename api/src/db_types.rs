@@ -10,11 +10,11 @@ impl From<sqlx::Error> for DatabaseError {
 
 // APPROACH 1
 pub trait ToDatabase<T> {
-    fn handle(self) -> Result<T,DatabaseError>;
+    fn handle(self) -> Result<T, DatabaseError>;
 }
 
 impl<T> ToDatabase<T> for Result<T, sqlx::Error> {
-    fn handle(self) -> Result<T,DatabaseError> {
+    fn handle(self) -> Result<T, DatabaseError> {
         match self {
             Ok(ok) => Ok(ok),
             Err(err) => {
@@ -26,68 +26,96 @@ impl<T> ToDatabase<T> for Result<T, sqlx::Error> {
 }
 
 // ================================================================================== Traits + Methods ============================================================================
+use crate::{db, DB_POOL};
 use async_trait::async_trait;
 use common::*;
-use crate::{DB_POOL, db};
 use rust_decimal::Decimal;
 
 #[async_trait]
-pub trait WGExt : Sized { async fn get(id: i32) -> Result<Self, DatabaseError>; async fn get_url(url : &str) -> Result<Self, DatabaseError>; }
+pub trait WGExt: Sized {
+    async fn get(id: i32) -> Result<Self, DatabaseError>;
+    async fn get_url(url: &str) -> Result<Self, DatabaseError>;
+}
 
 #[async_trait]
 impl WGExt for WG {
     async fn get(id: i32) -> Result<Self, DatabaseError> {
-        sqlx::query_as!(WG, r#"SELECT wgs.id, url, name, description, 
+        sqlx::query_as!(
+            WG,
+            r#"SELECT wgs.id, url, name, description, 
             (pp.id, pp.extension, pp.original_filename, pp.size_kb) as "profile_pic: DBUpload",
             (hp.id, hp.extension, hp.original_filename, hp.size_kb) as "header_pic: DBUpload"
         FROM wgs 
         LEFT JOIN uploads AS pp ON profile_pic = pp.id
         LEFT JOIN uploads AS hp ON header_pic = hp.id
-        WHERE wgs.id = $1"#, id)
-                .fetch_one(db!()).await.handle()
+        WHERE wgs.id = $1"#,
+            id
+        )
+        .fetch_one(db!())
+        .await
+        .handle()
     }
-    
-    async fn get_url(url : &str) -> Result<Self, DatabaseError> {
-        sqlx::query_as!(WG, r#"SELECT wgs.id, url, name, description, 
+
+    async fn get_url(url: &str) -> Result<Self, DatabaseError> {
+        sqlx::query_as!(
+            WG,
+            r#"SELECT wgs.id, url, name, description, 
             (pp.id, pp.extension, pp.original_filename, pp.size_kb) as "profile_pic: DBUpload",
             (hp.id, hp.extension, hp.original_filename, hp.size_kb) as "header_pic: DBUpload"
         FROM wgs 
         LEFT JOIN uploads AS pp ON profile_pic = pp.id
         LEFT JOIN uploads AS hp ON header_pic = hp.id
-        WHERE wgs.url = $1"#, url)
-                .fetch_one(db!()).await.handle()
+        WHERE wgs.url = $1"#,
+            url
+        )
+        .fetch_one(db!())
+        .await
+        .handle()
     }
 }
 
-
 #[async_trait]
-pub trait UserExt { async fn fetch_all_wg(wg_id: i32) -> Result<Vec<User>, DatabaseError>; }
+pub trait UserExt {
+    async fn fetch_all_wg(wg_id: i32) -> Result<Vec<User>, DatabaseError>;
+}
 
 #[async_trait]
 impl UserExt for User {
     async fn fetch_all_wg(wg_id: i32) -> Result<Vec<User>, DatabaseError> {
-        sqlx::query_as!(User, r#"SELECT users.id, name, bio, username, 
+        sqlx::query_as!(
+            User,
+            r#"SELECT users.id, name, bio, username, 
             (pp.id, pp.extension, pp.original_filename, pp.size_kb) as "profile_pic: DBUpload"
         FROM users 
         LEFT JOIN uploads AS pp ON profile_pic = pp.id
-        WHERE users.wg = $1"#, wg_id)
-            .fetch_all(db!()).await.handle()
+        WHERE users.wg = $1"#,
+            wg_id
+        )
+        .fetch_all(db!())
+        .await
+        .handle()
     }
 }
 
-
-
 #[async_trait]
-pub trait CostExt : Sized {
-    async fn get_all_balance(user_id: i32, wg_id: i32, balance_id: i32) -> Result<Vec<Self>, DatabaseError>;
+pub trait CostExt: Sized {
+    async fn get_all_balance(
+        user_id: i32,
+        wg_id: i32,
+        balance_id: i32,
+    ) -> Result<Vec<Self>, DatabaseError>;
     async fn get_id(user_id: i32, wg_id: i32, cost_id: i32) -> Result<Option<Self>, DatabaseError>;
 }
 
 #[async_trait]
 impl CostExt for Cost {
-    async fn get_all_balance(user_id: i32, wg_id: i32, balance_id: i32) -> Result<Vec<Self>, DatabaseError> {
+    async fn get_all_balance(
+        user_id: i32,
+        wg_id: i32,
+        balance_id: i32,
+    ) -> Result<Vec<Self>, DatabaseError> {
         sqlx::query_as!(Cost, r#"
-        SELECT costs.id, wg_id, name, amount, creditor_id, equal_balances, (pp.id, pp.extension, pp.original_filename, pp.size_kb) as "receit: DBUpload",
+        SELECT costs.id, wg_id, name, amount, creditor_id, poster_id, equal_balances, (pp.id, pp.extension, pp.original_filename, pp.size_kb) as "receit: DBUpload",
             added_on, ROW(my_share.cost_id, my_share.debtor_id, my_share.paid) as "my_share: DBCostShare",
             count(*) as nr_shares, sum( CASE WHEN shares.paid = false AND shares.debtor_id != creditor_id THEN 1 ELSE 0 END ) as nr_unpaid_shares       
         FROM costs
@@ -102,7 +130,7 @@ impl CostExt for Cost {
 
     async fn get_id(user_id: i32, wg_id: i32, cost_id: i32) -> Result<Option<Self>, DatabaseError> {
         sqlx::query_as!(Cost, r#"
-        SELECT costs.id, wg_id, name, amount, creditor_id, equal_balances, (pp.id, pp.extension, pp.original_filename, pp.size_kb) as "receit: DBUpload",
+        SELECT costs.id, wg_id, name, amount, creditor_id, poster_id, equal_balances, (pp.id, pp.extension, pp.original_filename, pp.size_kb) as "receit: DBUpload",
             added_on, ROW(my_share.cost_id, my_share.debtor_id, my_share.paid) as "my_share: DBCostShare",
             count(*) as nr_shares, sum( CASE WHEN shares.paid = false AND shares.debtor_id != creditor_id THEN 1 ELSE 0 END ) as nr_unpaid_shares
         FROM costs
@@ -114,40 +142,45 @@ impl CostExt for Cost {
         ORDER BY added_on DESC;"#, user_id, wg_id, cost_id)
             .fetch_optional(db!()).await.handle()
     }
-
 }
 
-
-
 #[async_trait]
-pub trait CostShareExt : Sized {
+pub trait CostShareExt: Sized {
     async fn get_all_cost(cost_id: i32, wg_id: i32) -> Result<Vec<Self>, DatabaseError>;
 }
 
 #[async_trait]
 impl CostShareExt for CostShare {
     async fn get_all_cost(cost_id: i32, wg_id: i32) -> Result<Vec<Self>, DatabaseError> {
-        sqlx::query_as!(CostShare, "SELECT cost_id, debtor_id, paid 
+        sqlx::query_as!(
+            CostShare,
+            "SELECT cost_id, debtor_id, paid 
         FROM cost_shares LEFT JOIN costs ON cost_id = costs.id
-        WHERE cost_id=$1 AND costs.wg_id = $2", cost_id, wg_id)
-            .fetch_all(db!()).await.handle()
+        WHERE cost_id=$1 AND costs.wg_id = $2",
+            cost_id,
+            wg_id
+        )
+        .fetch_all(db!())
+        .await
+        .handle()
     }
 }
 
-
 #[async_trait]
-pub trait UserDebtExt : Sized { async fn get_all_for_balance(wg_id : i32, balance_id: i32) -> Result<Vec<Self>, DatabaseError>; }
+pub trait UserDebtExt: Sized {
+    async fn get_all_for_balance(wg_id: i32, balance_id: i32) -> Result<Vec<Self>, DatabaseError>;
+}
 
 #[async_trait]
 impl UserDebtExt for UserDebt {
-    async fn get_all_for_balance(wg_id : i32, balance_id: i32) -> Result<Vec<Self>, DatabaseError> {
+    async fn get_all_for_balance(wg_id: i32, balance_id: i32) -> Result<Vec<Self>, DatabaseError> {
         struct DebtTableRecord {
-            u1: Option<i32>, 
-            to_recieve: Option<Decimal>, 
-            u2: Option<i32>, 
-            to_pay: Option<Decimal> 
+            u1: Option<i32>,
+            to_recieve: Option<Decimal>,
+            u2: Option<i32>,
+            to_pay: Option<Decimal>,
         }
-        
+
         /*
             OK DAMN!! Let's explain this query.
             First, the subquery in the first section [debt_table > cost_agg] gets a full table of costs, with the number of their shares included on each one.
@@ -196,11 +229,11 @@ impl UserDebtExt for UserDebt {
         let mut debts: Vec<UserDebt> = vec![];
         for record in dtrs {
             let user_id = record.u1.or(record.u2);
-            if let Some (user_id) = user_id {
+            if let Some(user_id) = user_id {
                 debts.push(UserDebt {
                     user_id,
                     to_recieve: record.to_recieve.unwrap_or(Decimal::ZERO),
-                    to_pay:  record.to_pay.unwrap_or(Decimal::ZERO)
+                    to_pay: record.to_pay.unwrap_or(Decimal::ZERO),
                 })
             }
         }
@@ -208,3 +241,4 @@ impl UserDebtExt for UserDebt {
         Ok(debts)
     }
 }
+
