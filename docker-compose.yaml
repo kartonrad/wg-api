@@ -1,0 +1,37 @@
+version: "3"
+
+services:
+  web:
+    build: .
+    restart: always
+    env_file:
+      - docker.env 
+    links: 
+      - db
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "3100:3100"
+    networks: 
+      - shonk
+    volumes:
+      - ./uploads:/wg/uploads
+      - ./.config:/wg/.config:ro
+
+  db:
+    restart: always
+    image: postgres:15-alpine
+    env_file:
+      - docker.env 
+    networks: 
+      - shonk
+    volumes:
+      - ./db:/var/lib/postgresql/data
+    healthcheck:
+      test: "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB -p $$POSTGRES_PASSWORD"
+      interval: 5s
+      retries: 20
+
+networks:
+  shonk:
