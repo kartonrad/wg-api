@@ -1,5 +1,5 @@
-
 use common::{Balance, Cost, CostShare, RegularDef, RegularSpending, UserDebt};
+use dioxus::core::anyhow;
 
 use crate::constants::API_URL;
 
@@ -31,19 +31,19 @@ pub type HTTP = reqwest::Client;
 /// }
 /// ```
 macro_rules! use_api_else_return {
-    ($func_name : ident; $cx:expr $(, $param:ident)*) => {
+    ($func_name : ident $(; $param:ident)?) => {
         {
             use dioxus::prelude::{use_future, use_context};
             use crate::api::$func_name;
             use crate::api::HTTP;
 
-            let http = use_context::<HTTP>($cx)?;
+            let http = use_context::<HTTP>();
 
              let val =
-                use_future( $cx, &( $($param,)*), move |( $($param,)*)| {
+                use_future( move || {
                     $func_name(http.clone(), $($param,)*)
                 });
-            let val = val.value()?.to_owned()?;
+            let val = val.read_unchecked();
 
             val
         }
@@ -52,51 +52,89 @@ macro_rules! use_api_else_return {
 
 // Functions intended to be used with the macro:
 
-
 pub async fn get_costs(http: HTTP, id: Option<i32>) -> Option<Vec<Cost>> {
-    let qry = if let Some(id) = id {format!("?balance={id}")} else {String::from("")};
+    let qry = if let Some(id) = id {
+        format!("?balance={id}")
+    } else {
+        String::from("")
+    };
 
     Some(
-        http.get( format!("{API_URL}/api/my_wg/costs{qry}") ).send().await.ok()?
-            .json().await.ok()?
+        http.get(format!("{API_URL}/api/my_wg/costs{qry}"))
+            .send()
+            .await
+            .ok()?
+            .json()
+            .await
+            .ok()?,
     )
 }
 
 pub async fn get_cost(http: HTTP, id: i32) -> Option<Cost> {
     Some(
-        http.get( format!("{API_URL}/api/my_wg/costs/{id}/detail") ).send().await.ok()?
-            .json::<Option<Cost>>().await.ok()??
+        http.get(format!("{API_URL}/api/my_wg/costs/{id}/detail"))
+            .send()
+            .await
+            .ok()?
+            .json::<Option<Cost>>()
+            .await
+            .ok()??,
     )
 }
 
 pub async fn get_shares(http: HTTP, id: i32) -> Option<Vec<CostShare>> {
     Some(
-        http.get( format!("{API_URL}/api/my_wg/costs/{id}/shares") ).send().await.ok()?
-            .json::<Vec<CostShare>>().await.ok()?
+        http.get(format!("{API_URL}/api/my_wg/costs/{id}/shares"))
+            .send()
+            .await
+            .ok()?
+            .json::<Vec<CostShare>>()
+            .await
+            .ok()?,
     )
 }
 
 // Attention: in the app i call /stats "the Tally", and /over_time "the stats"
 // because that makes way more sense now that i thought of the word "tally"
 pub async fn get_tally(http: HTTP, id: Option<i32>) -> Option<Vec<UserDebt>> {
-    let qry = if let Some(id) = id {format!("?balance={id}")} else {String::from("")};
+    let qry = if let Some(id) = id {
+        format!("?balance={id}")
+    } else {
+        String::from("")
+    };
 
-    Some (
-        http.get( format!("{API_URL}/api/my_wg/costs/stats{qry}") ).send().await.ok()?
-            .json::<Vec<UserDebt>>().await.ok()?
+    Some(
+        http.get(format!("{API_URL}/api/my_wg/costs/stats{qry}"))
+            .send()
+            .await
+            .ok()?
+            .json::<Vec<UserDebt>>()
+            .await
+            .ok()?,
     )
 }
 
 pub async fn get_balances(http: HTTP) -> Option<Vec<Balance>> {
-    Some (
-        http.get( format!("{API_URL}/api/my_wg/costs/balance") ).send().await.ok()?
-            .json::<Vec<Balance>>().await.ok()?
+    Some(
+        http.get(format!("{API_URL}/api/my_wg/costs/balance"))
+            .send()
+            .await
+            .ok()?
+            .json::<Vec<Balance>>()
+            .await
+            .ok()?,
     )
 }
 
-pub async fn get_stats(http: HTTP, period: RegularDef) -> Option<Vec<RegularSpending>> {
-    Some (
-        http.get( format!("{API_URL}/api/my_wg/costs/over_time/{period}") ).send().await.ok()?
-            .json::<Vec<RegularSpending>>().await.ok()?
+pub async fn get_stats(
+    http: HTTP,
+    period: RegularDef,
+) -> Result<Vec<RegularSpending>, anyhow::Error> {
+    Some(
+        http.get(format!("{API_URL}/api/my_wg/costs/over_time/{period}"))
+            .send()
+            .await?
+            .json::<Vec<RegularSpending>>()
+            .await?,
     )
 }

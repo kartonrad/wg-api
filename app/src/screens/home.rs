@@ -1,15 +1,20 @@
-use dioxus::prelude::*;
-use crate::API_URL;
 use crate::identity_service::{upload_to_path, WGMember};
+use crate::API_URL;
+use dioxus::prelude::*;
 
-pub fn HomeScreen(cx: Scope) -> Element {
-    let member = use_shared_state::<WGMember>(cx).unwrap();
+pub fn HomeScreen() -> Element {
+    let member = use_context::<Signal<WGMember>>();
     let member = member.read();
-    let header = upload_to_path( member.wg.header_pic.clone()).unwrap_or("/public/img/rejection.jpg".to_string());
-    let profile_pic = upload_to_path( member.wg.profile_pic.clone()).unwrap_or("/public/img/rejection.jpg".to_string());
+
+    let header = upload_to_path(member.wg.header_pic.clone())
+        .unwrap_or("/public/img/rejection.jpg".to_string());
+    let profile_pic = upload_to_path(member.wg.profile_pic.clone())
+        .unwrap_or("/public/img/rejection.jpg".to_string());
 
     let userelems = member.friends.iter().map(|(_uid, user)| {
-        let profile_pic = upload_to_path( user.profile_pic.clone() ).unwrap_or("/public/img/rejection.jpg".to_string());
+        let profile_pic = upload_to_path(user.profile_pic.clone())
+            .unwrap_or("/public/img/rejection.jpg".to_string());
+
         rsx!(
             div {
                 class:"user_card",
@@ -27,7 +32,7 @@ pub fn HomeScreen(cx: Scope) -> Element {
         )
     });
 
-    render!(
+    rsx!(
         div {
             background_image: "url({API_URL}{header})",
             class: "wg_header",
@@ -40,14 +45,15 @@ pub fn HomeScreen(cx: Scope) -> Element {
         div {
             class: "wg_body",
 
-            h3 { "{member.wg.name}"}  
+            h3 { "{member.wg.name}"}
             p {
                 "{member.wg.description}"
             }
         }
         div {
-            class: "scroll_container", 
-            userelems
+            class: "scroll_container",
+            { userelems }
         }
     )
 }
+

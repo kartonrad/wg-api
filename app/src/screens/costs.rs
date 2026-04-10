@@ -1,47 +1,66 @@
 #![allow(non_snake_case)]
 
-use std::collections::HashMap;
-use std::ops::Sub;
-use common::{Balance, BalancingTransaction, Cost, CostInput, RegularDef, RegularSpending, UserDebt};
+use crate::api::{get_costs, get_stats, get_tally, HTTP};
+use crate::identity_service::{upload_to_path, WGMember};
+use crate::time::{current_utc_time, date_to_local_offset, local_tz_offset};
+use crate::{constants::API_URL, use_api_else_return, HeaderBar};
+use common::{
+    Balance, BalancingTransaction, Cost, CostInput, RegularDef, RegularSpending, UserDebt,
+};
+use dioxus::core::anyhow;
 use dioxus::prelude::*;
-use dioxus_router::{Link, use_route, use_router};
-use futures_lite::FutureExt;
+use dioxus_router::{use_route, use_router, Link};
 use futures_lite::io::split;
+use futures_lite::FutureExt;
 use log::{error, trace};
 use reqwest::header::CONTENT_TYPE;
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
-use serde::Deserialize;
-use crate::{constants::API_URL, HeaderBar, use_api_else_return};
-use time::macros::format_description;
-use time::{Duration, Month, OffsetDateTime, PrimitiveDateTime};
-use crate::identity_service::{upload_to_path, WGMember};
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
+use serde::Deserialize;
+use std::collections::HashMap;
+use std::ops::Sub;
 use time::format_description::well_known::Iso8601;
-use crate::api::HTTP;
-use crate::time::{use_current_utc_time, use_date_to_local_offset, use_local_tz_offset};
+use time::{format_description, Duration, Month, OffsetDateTime, PrimitiveDateTime};
 
-pub fn CostNewScreen(cx: Scope) -> Element {
-    let http = use_context::<HTTP>(cx)?;
-    let mmember = use_shared_state::<WGMember>(cx).unwrap();
+#[component]
+pub fn CostNewScreen() -> Element {
+    let http = use_context::<HTTP>();
+    let mmember = use_context::<Signal<WGMember>>();
     let member = mmember.read();
-    let router = use_router(cx);
+    let router = use_router();
 
     // DATE
-    let mut current_date = use_current_utc_time(cx)?;
-    let utc_offset = use_local_tz_offset(cx)?;
-    use_date_to_local_offset(cx, &mut current_date);
-    let added_on = use_state(cx, || current_date );
-    let added_on_str = added_on.format(format_description!("[year]-[month]-[day]T[hour]:[minute]")).ok()?;
+    let time = use_resource(|| {
+        Box::pin(async {
+            let utc_offset = local_tz_offset().await?;
+            let mut current_date = current_utc_time().await?;
+            date_to_local_offset(&mut current_date).await;
+
+            Some((utc_offset, current_date))
+        })
+    });
+    let (utc_offset, current_date) = time
+        .read_unchecked()
+        .cloned()
+        .unwrap()
+        .ok_or(anyhow!("Couldn't get time"))?;
+
+    let added_on = use_signal(|| current_date);
+    let added_on_str = added_on.read().format(
+        // TODO: in konstante auslagern?
+        &format_description::parse("[year]-[month]-[day]T[hour]:[minute]")
+            .expect("Valid Format Description"),
+    )?;
     trace!("ISO Current date: {added_on_str}");
 
     // AMOUNT
-    let decimal_str = use_state(cx, || "0.00".to_string());
+    let decimal_str = use_signal(|| "0.00".to_string());
     let decimal = Decimal::from_str_exact(decimal_str.get()).unwrap_or(dec!(0.0));
 
     let on_amount_change = |evt: Event<FormData>| {
         trace!("WHAT THE HELL");
-        let mut amt = evt.value.clone();
+        let mut amt = evt.value().clone();
 
         // Checks if user typed some bullshit character
         let is_numeric = amt.chars().fold(true, |bool, char| {
@@ -54,13 +73,13 @@ pub fn CostNewScreen(cx: Scope) -> Element {
 
             trace!("STEP 1 => {amt}");
 
-            let int_part = &amt[0 .. amt.len()-2];
-            let fract_part = &amt[amt.len()-2..];
+            let int_part = &amt[0..amt.len() - 2];
+            let fract_part = &amt[amt.len() - 2..];
             amt = format!("{int_part}.{fract_part}");
 
             trace!("STEP 2 => {amt}");
 
-            amt = amt.replace("0", " ").trim_start().replace(" ","0");
+            amt = amt.replace("0", " ").trim_start().replace(" ", "0");
             amt = format!("{amt:0>4}");
 
             trace!("STEP 3 => {amt}");
@@ -73,15 +92,18 @@ pub fn CostNewScreen(cx: Scope) -> Element {
     };
 
     // DEBTORS
-    let debtors = use_ref(cx, || {
-        let debtors : HashMap<i32, bool> = member.friends.iter().map(|(t, user)| {
-            (t.clone(), true)
-        }).collect();
+    let debtors = use_signal(|| {
+        let debtors: HashMap<i32, bool> = member
+            .friends
+            .iter()
+            .map(|(t, user)| (t.clone(), true))
+            .collect();
         debtors
     });
 
     let debtors_selectors = member.friends.clone().into_iter().map(|(t, user)| {
-        let profile_pic = upload_to_path( user.profile_pic.clone() ).unwrap_or("/public/img/rejection.jpg".to_string());
+        let profile_pic = upload_to_path(user.profile_pic.clone())
+            .unwrap_or("/public/img/rejection.jpg".to_string());
         let active = *debtors.read().get(&t).unwrap_or(&false);
 
         rsx!(
@@ -101,39 +123,56 @@ pub fn CostNewScreen(cx: Scope) -> Element {
     });
 
     // CURRENT STATE ANALYSOS
-    let debtor_list : Vec<i32> = debtors.read().iter().filter(|(t,b)| {**b}).map(|(t, b)| { t.clone() }).collect();
+    let debtor_list: Vec<i32> = debtors
+        .read()
+        .iter()
+        .filter(|(t, b)| **b)
+        .map(|(t, b)| t.clone())
+        .collect();
     let debtor_count = debtor_list.len();
-    let debtor_clearcount = debtor_list.iter().filter(|t| member.identity.id != **t).count();
+    let debtor_clearcount = debtor_list
+        .iter()
+        .filter(|t| member.identity.id != **t)
+        .count();
 
     // ON SUBMIT
 
     let send_cost = move |evt: Event<FormData>| {
         evt.stop_propagation();
         let me_id = mmember.read().identity.id;
-        cx.spawn({
+        spawn({
             to_owned![router, http, decimal, debtor_list];
-            let added_on = **added_on;
-            let name = evt.values.get("name").unwrap_or(&"Unbenannt >:(".to_string()).to_owned();
+            let added_on = added_on.cloned();
+            let name = evt
+                .values()
+                .get("name".into())
+                .unwrap_or(&"Unbenannt >:(".to_string())
+                .to_owned();
 
             async move {
                 to_owned![added_on, name];
 
-                let req =
-                    http.post(format!("{API_URL}/api/my_wg/costs"))
-                        .header(CONTENT_TYPE, "application/json")
-                        .body(serde_json::to_string(&CostInput {
+                let req = http
+                    .post(format!("{API_URL}/api/my_wg/costs"))
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(
+                        serde_json::to_string(&CostInput {
+                            // TODO: Add ability to submit for someone else
+                            on_behalf_of_user_id: None,
                             name: name.to_owned(),
                             amount: decimal,
                             added_on: added_on,
-                            debtors: debtor_list.into_iter().map(|i| {(i, i == me_id)}).collect()
-                        }).unwrap_or("inmvalid json ad".to_owned()));
+                            debtors: debtor_list.into_iter().map(|i| (i, i == me_id)).collect(),
+                        })
+                        .unwrap_or("inmvalid json ad".to_owned()),
+                    );
 
                 let result = req.send().await;
                 match result.map(|res| res.error_for_status()) {
                     Ok(res) => {
                         trace!("SUCCESSFULLY ADDED ENTRY!");
-                        router.pop_route();
-                    },
+                        router.go_back();
+                    }
                     Err(err) => {
                         error!("Couldn't add entry!! {err}");
                     }
@@ -143,12 +182,12 @@ pub fn CostNewScreen(cx: Scope) -> Element {
         //evt.values
     };
 
-    render!(
+    rsx!(
         HeaderBar { title: "Eintrag anlegen", }
 
         form {
-            onsubmit: send_cost,
-            prevent_default: "onsubmit",
+            onsubmit: |evt| {}, // send_cost,
+            // prevent_default: "onsubmit",
 
             div {
                 background_color: "rgba(255, 255, 255, 0.35)",
@@ -178,14 +217,17 @@ pub fn CostNewScreen(cx: Scope) -> Element {
                     name: "added_on",
                     value: "{added_on_str}",
                     oninput: move |evt: Event<FormData>| {
-                        let ee = &evt.value;
+                        let ee = &evt.value();
                         trace!("Trying to parse: {ee}");
                         added_on.set(
-                            match PrimitiveDateTime::parse(&evt.value.trim(), format_description!("[year]-[month]-[day]T[hour]:[minute]")) {
+                            match PrimitiveDateTime::parse(&evt.value().trim(),
+                                &format_description::parse("[year]-[month]-[day]T[hour]:[minute]")
+                                    .expect("Valid Format Description"),
+                            ) {
                                 Ok(date) => date.assume_offset(utc_offset),
                                 Err(err) => {
                                     trace!("{err}");
-                                    let val = &evt.value;
+                                    let val = &evt.value();
                                     trace!("PArsing: {val} - failed!");
                                     current_date
                                 }
@@ -198,7 +240,7 @@ pub fn CostNewScreen(cx: Scope) -> Element {
 
                 div {
                     class: "new_cost_debtors_container",
-                    debtors_selectors
+                    { debtors_selectors }
                 }
 
 
@@ -208,17 +250,17 @@ pub fn CostNewScreen(cx: Scope) -> Element {
                 class: "wg_body", // misuse
 
                 if debtor_count>0 {
-                    rsx!(
-                        "Du hast {decimal_str}€ bezahlt"
-                        br {}
-                        "Du bekommst"
-                        AmountDisplay {
-                            amt: decimal / Decimal::from(debtor_count) * Decimal::from(debtor_clearcount)
-                        }
-                        "von den {debtor_count} anderen Beteiligten zurück."
-                    )
+                    "Du hast {decimal_str}€ bezahlt"
+                    br {}
+                    "Du bekommst"
+                    AmountDisplay {
+                        amt: decimal / Decimal::from(debtor_count) * Decimal::from(debtor_clearcount)
+                    }
+                    "von den {debtor_count} anderen Beteiligten zurück."
                 } else {
-                    rsx!(span { color: "crimson", "Wähle mindestens eine/n Beteiligte/n aus!" })
+                    span {
+                        color: "crimson", "Wähle mindestens eine/n Beteiligte/n aus!"
+                    }
                 }
             }
 
@@ -230,8 +272,9 @@ pub fn CostNewScreen(cx: Scope) -> Element {
     )
 }
 
-pub fn CostListScreen(cx: Scope) -> Element {
-    render!(
+#[component]
+pub fn CostListScreen() -> Element {
+    rsx!(
         CostList {
         }
         Link {
@@ -243,22 +286,19 @@ pub fn CostListScreen(cx: Scope) -> Element {
     )
 }
 
-pub fn CostTallyScreen(cx: Scope) -> Element {
-    let member = use_shared_state::<WGMember>(cx).unwrap();
+#[component]
+pub fn CostTallyScreen() -> Element {
+    let member = use_context::<Signal<WGMember>>();
     let member = member.read();
 
     let balances = use_api_else_return!(get_balances; cx);
     let balance_obj = balances.into_iter().map(|balance| {
         let _user = &member.friends[&balance.initiator_id];
 
-        rsx!(
-            BalanceEntry {
-                b: balance
-            }
-        )
+        rsx!(BalanceEntry { b: balance })
     });
 
-    render!(
+    rsx!(
         Tallys {
         }
         //trx_obj
@@ -268,24 +308,32 @@ pub fn CostTallyScreen(cx: Scope) -> Element {
         }
         div {
             class: "scroll_container",
-            balance_obj
+            { balance_obj }
         }
 
     )
 }
 
 fn pairwise<I>(right: I) -> impl Iterator<Item = (I::Item, I::Item)>
-    where
-        I: Iterator + Clone
+where
+    I: Iterator + Clone,
 {
     let left = right.clone();
     left.zip(right.skip(1))
 }
 
-pub fn CostStatScreen(cx: Scope) -> Element {
+#[component]
+pub fn CostStatScreen() -> Element {
     let interval = RegularDef::Week;
     // algorithm expects these to be in descending order
-    let stats = use_api_else_return!(get_stats; cx, interval);
+    let stats = use_api_else_return!(get_stats; interval);
+
+    use dioxus::core::AnyhowContext;
+
+    let client = use_context::<HTTP>();
+    let val = use_resource(move || get_stats(client.clone(), interval));
+    let stats = val.read().ok_or(anyhow!("Not loaded"))?;
+    let stats = stats.context("Stats could not be retrieved")?;
 
     let n = 20usize;
     let mut now = use_current_utc_time(cx).unwrap();
@@ -295,16 +343,23 @@ pub fn CostStatScreen(cx: Scope) -> Element {
     let mut y_max = dec!(0.0);
 
     while let Some(stat) = statpeeker.peek() {
-        let year =  now.year();
+        let year = now.year();
         let week = now.iso_week();
 
         trace!("constructing: {now}, {year}, {week}");
         // if newer than 'now', discard (because what the hell???)
-        if stat.time_bucket > now { let _ = statpeeker.next().unwrap(); /* guaranteed some() */ continue; }
+        if stat.time_bucket > now {
+            let _ = statpeeker.next().unwrap(); /* guaranteed some() */
+            continue;
+        }
 
         if stat.time_bucket.year() == now.year() && stat.time_bucket.iso_week() == now.iso_week() {
-            let stat = statpeeker.next().unwrap();/* guaranteed some() */
-            y_max = y_max.max( stat.total_unified_spending ).max( stat.i_paid ).max( stat.i_recieved ).max( stat.my_total_spending );
+            let stat = statpeeker.next().unwrap(); /* guaranteed some() */
+            y_max = y_max
+                .max(stat.total_unified_spending)
+                .max(stat.i_paid)
+                .max(stat.i_recieved)
+                .max(stat.my_total_spending);
 
             stat_per_week.push(Some(stat))
         } else {
@@ -314,124 +369,132 @@ pub fn CostStatScreen(cx: Scope) -> Element {
         now = now.sub(Duration::weeks(1));
 
         // we only want to display the last n elements
-        if stat_per_week.len() > 20 { break; }
+        if stat_per_week.len() > 20 {
+            break;
+        }
     }
     trace!("{y_max} {stat_per_week:?}");
-
 
     // SHIT DIAGRAM #1
     // more complicated for an uglier solution. constructing svg paths would be easier (in conclusion: bozo shit)
     // in pursuit of laziness i devised an insane contraption fckn pairwise iterators
-    let line_iter = pairwise(stat_per_week.iter().rev()).enumerate()
+    let line_iter = pairwise(stat_per_week.iter().rev())
+        .enumerate()
         .map(|(idx, (from, to))| {
             let had_from = from.is_some();
             let from = from.clone().unwrap_or(RegularSpending::default());
             let to = to.clone().unwrap_or(RegularSpending::default());
-            let date = from.time_bucket.format(&format_description!("[day] [month repr:short]")).expect("EE");
+            let date = from
+                .time_bucket
+                .format(
+                    &format_description::parse("[day] [month repr:short]")
+                        .expect("Valid format description"),
+                )
+                .expect("EE");
 
             trace!("from: {:?}, to: {:?}", from, to);
 
             rsx!(
-                line {
-                    stroke: "#80808059",
-                    stroke_width: "1px",
-                    x1: "{400/n*idx}",
-                    x2: "{400/n*idx}",
-                    y1: "{0}",
-                    y2: "{300}",
-                }
+               line {
+                   stroke: "#80808059",
+                   stroke_width: "1px",
+                   x1: "{400/n*idx}",
+                   x2: "{400/n*idx}",
+                   y1: "{0}",
+                   y2: "{300}",
+               }
 
-                line {
-                    stroke: "#ff8f00c4",
-                    x1: "{400/n*idx}",
-                    x2: "{400/n*(idx+1)}",
-                    y1: "{dec!(-300.0)*(from.total_unified_spending / y_max) +dec!(300.0)}",
-                    y2: "{dec!(-300.0)*(to.total_unified_spending / y_max) +dec!(300.0)}",
+               line {
+                   stroke: "#ff8f00c4",
+                   x1: "{400/n*idx}",
+                   x2: "{400/n*(idx+1)}",
+                   y1: "{dec!(-300.0)*(from.total_unified_spending / y_max) +dec!(300.0)}",
+                   y2: "{dec!(-300.0)*(to.total_unified_spending / y_max) +dec!(300.0)}",
 
-                }
-                line {
-                    stroke: "blue",
-                    x1: "{400/n*idx}",
-                    x2: "{400/n*(idx+1)}",
-                    y1: "{dec!(-300.0)*(from.my_total_spending / y_max) +dec!(300.0)}",
-                    y2: "{dec!(-300.0)*(to.my_total_spending / y_max) +dec!(300.0)}",
+               }
+               line {
+                   stroke: "blue",
+                   x1: "{400/n*idx}",
+                   x2: "{400/n*(idx+1)}",
+                   y1: "{dec!(-300.0)*(from.my_total_spending / y_max) +dec!(300.0)}",
+                   y2: "{dec!(-300.0)*(to.my_total_spending / y_max) +dec!(300.0)}",
 
-                }
-                line {
-                    stroke: "#06bf008c",
-                    x1: "{400/n*idx}",
-                    x2: "{400/n*(idx+1)}",
-                    y1: "{dec!(-300.0)*(from.i_recieved / y_max) +dec!(300.0)}",
-                    y2: "{dec!(-300.0)*(to.i_recieved / y_max) +dec!(300.0)}",
+               }
+               line {
+                   stroke: "#06bf008c",
+                   x1: "{400/n*idx}",
+                   x2: "{400/n*(idx+1)}",
+                   y1: "{dec!(-300.0)*(from.i_recieved / y_max) +dec!(300.0)}",
+                   y2: "{dec!(-300.0)*(to.i_recieved / y_max) +dec!(300.0)}",
 
-                }
-                line {
-                    stroke: "#ff000080",
-                    x1: "{400/n*idx}",
-                    x2: "{400/n*(idx+1)}",
-                    y1: "{dec!(-300.0)*(from.i_paid / y_max)+dec!(300.0)}",
-                    y2: "{dec!(-300.0)*(to.i_paid / y_max)+dec!(300.0)}",
+               }
+               line {
+                   stroke: "#ff000080",
+                   x1: "{400/n*idx}",
+                   x2: "{400/n*(idx+1)}",
+                   y1: "{dec!(-300.0)*(from.i_paid / y_max)+dec!(300.0)}",
+                   y2: "{dec!(-300.0)*(to.i_paid / y_max)+dec!(300.0)}",
 
-                }
-                if had_from {
-                    rsx!(
-                        text {
-                            writing_mode: "vertical-rl",
-                            x: "{400/n*idx}",
-                            y: "305",
-                            color: "#80808059",
-                            font_size: "10",
+               }
+               if had_from {
+                   text {
+                       writing_mode: "vertical-rl",
+                       x: "{400/n*idx}",
+                       y: "305",
+                       color: "#80808059",
+                       font_size: "10",
 
-                            "{date}"
-                        }
-                    )
-                }
-             )
-        })
-        ;
+                       "{date}"
+                   }
+               }
+            )
+        });
 
-    let grid_iter = (0..(y_max.trunc().to_i32().unwrap_or(0))).step_by( 10 ).map(|nr| {
-        trace!("EEE {nr}");
-        let y = dec!(300) - (Decimal::from(nr)/y_max*dec!(300));
+    let grid_iter = (0..(y_max.trunc().to_i32().unwrap_or(0)))
+        .step_by(10)
+        .map(|nr| {
+            trace!("EEE {nr}");
+            let y = dec!(300) - (Decimal::from(nr) / y_max * dec!(300));
 
-        rsx!(
-            line {
+            rsx!(line {
                 stroke: "#80808059",
                 stroke_width: "1px",
                 x1: "0",
                 x2: "400",
                 y1: "{y}",
                 y2: "{y}",
-            }
-        )
-    });
+            })
+        });
 
-    render!(
+    rsx!(
         svg {
             view_box: "0 0 400 350",
             xmlns: "http://www.w3.org/2000/svg",
             width: "100%",
             class: "weekely_stats",
 
-            grid_iter
-            line_iter
+            { grid_iter }
+            { line_iter }
         }
     )
 }
 
-
 #[derive(Deserialize)]
 struct IdQuery {
-    id: i32
+    id: i32,
 }
 
-pub fn CostDetailScreen(cx: Scope) -> Element {
-    let route = use_route(cx);
+#[component]
+pub fn CostDetailScreen() -> Element {
+    let route = use_route();
 
     let id = match route.query::<IdQuery>() {
-        None => { return render!("AHH BULLSHIT NO ID"); }
-        Some(i) => { i }
-    }.id;
+        None => {
+            return rsx!("AHH BULLSHIT NO ID");
+        }
+        Some(i) => i,
+    }
+    .id;
 
     let cost = use_api_else_return!(get_cost; cx, id);
 
@@ -447,10 +510,15 @@ pub fn CostDetailScreen(cx: Scope) -> Element {
     let expanded_date = date.format(&format_description!("[weekday], der [day]. [month repr:long] [year],\n um [hour]:[minute]:[second] Uhr (GMT [offset_hour]:[offset_minute])")).expect("EE");
 
     // shares
-    let share_obj = shares.iter().map(| share | {
+    let share_obj = shares.iter().map(|share| {
         let usern = &member.friends[&share.debtor_id].name;
-        let amt = if member.identity.id == share.debtor_id {-interpreted.single_payment} else {interpreted.single_payment};
-        let strikethrough = share.paid || ( !interpreted.am_creditor &&  member.identity.id != share.debtor_id);
+        let amt = if member.identity.id == share.debtor_id {
+            -interpreted.single_payment
+        } else {
+            interpreted.single_payment
+        };
+        let strikethrough =
+            share.paid || (!interpreted.am_creditor && member.identity.id != share.debtor_id);
 
         rsx!(
             tr {
@@ -469,11 +537,15 @@ pub fn CostDetailScreen(cx: Scope) -> Element {
                 }
             }
         )
-    } );
+    });
 
-    let verb = if interpreted.my_gain.is_sign_positive() { "bekomme zurück" } else { "zahle noch" };
+    let verb = if interpreted.my_gain.is_sign_positive() {
+        "bekomme zurück"
+    } else {
+        "zahle noch"
+    };
 
-    render!(
+    rsx!(
         HeaderBar { title: "Eintrag #{id} 🔎", }
         div {
             class: "scroll_container",
@@ -490,7 +562,7 @@ pub fn CostDetailScreen(cx: Scope) -> Element {
             table {
                 class: "cost_detail_calculation",
 
-                share_obj
+                { share_obj }
                 hr {}
                 tr {
                     td { "Ich {verb}:"  }
@@ -501,16 +573,19 @@ pub fn CostDetailScreen(cx: Scope) -> Element {
     )
 }
 
-
-pub fn CostBalanceDetailScreen(cx: Scope) -> Element {
-    let route = use_route(cx);
+#[component]
+pub fn CostBalanceDetailScreen() -> Element {
+    let route = use_route();
 
     let id = match route.query::<IdQuery>() {
-        None => { return render!("AHH BULLSHIT NO ID"); }
-        Some(i) => { i }
-    }.id;
+        None => {
+            return rsx!("AHH BULLSHIT NO ID");
+        }
+        Some(i) => i,
+    }
+    .id;
 
-    render!(
+    rsx!(
         HeaderBar { title: "Abrechnung #{id} 🔎", }
 
         h3 {
@@ -535,9 +610,9 @@ pub fn CostBalanceDetailScreen(cx: Scope) -> Element {
 }
 
 // ========== Components
-#[inline_props]
-fn TransactionEntry(cx: Scope, trx: BalancingTransaction) -> Element {
-    let member = use_shared_state::<WGMember>(cx).unwrap();
+#[component]
+fn TransactionEntry(trx: BalancingTransaction) -> Element {
+    let member = use_context::<Signal<WGMember>>();
     let member = member.read();
 
     let from_u = &member.friends[&trx.from_user_id];
@@ -546,7 +621,7 @@ fn TransactionEntry(cx: Scope, trx: BalancingTransaction) -> Element {
     let from_profile_pic = upload_to_path(from_u.profile_pic.clone()).unwrap_or("".to_string());
     let to_profile_pic = upload_to_path(to_u.profile_pic.clone()).unwrap_or("".to_string());
 
-    render!(
+    rsx!(
         div {
             class: "transaction",
 
@@ -580,34 +655,35 @@ fn TransactionEntry(cx: Scope, trx: BalancingTransaction) -> Element {
     )
 }
 
-#[inline_props]
-fn TallyTransactions(cx: Scope, tally: Vec<UserDebt>) -> Element {
+#[component]
+fn TallyTransactions(tally: Vec<UserDebt>) -> Element {
     let trx = BalancingTransaction::from_debt_table(tally.clone())
         .expect("db return to be balancable as per shema");
-    let trx_obj = trx
-        .iter().map(| trx | {
-
-        rsx!(
-            TransactionEntry { trx: trx.to_owned() }
-        )
+    let trx_obj = trx.iter().map(|trx| {
+        rsx!(TransactionEntry {
+            trx: trx.to_owned()
+        })
     });
 
-    render!(
-        trx_obj
-    )
+    rsx!({ trx_obj })
 }
 
-#[inline_props]
-fn Tallys(cx: Scope, balance_id: Option<i32>, include_trx: Option<bool>) -> Element {
-    let member = use_shared_state::<WGMember>(cx).unwrap();
+#[component]
+fn Tallys(balance_id: Option<i32>, include_trx: Option<bool>) -> Element {
+    let member = use_context::<Signal<WGMember>>();
     let member = member.read();
 
     let balance_id = balance_id.to_owned();
-    let tally = use_api_else_return!(get_tally; cx, balance_id);
+
+    let client = use_context::<HTTP>();
+    let val = use_resource(move || get_tally(client.clone(), balance_id));
+    let tally = val.read().ok_or(anyhow!("Not loaded"))?;
+    let tally = tally.context("Balance could not be retrieved")?;
 
     let tally_obj = tally.iter().map(|t| {
         let user = &member.friends[&t.user_id];
-        let profile_pic = upload_to_path( user.profile_pic.clone() ).unwrap_or("/public/img/rejection.jpg".to_string());
+        let profile_pic = upload_to_path(user.profile_pic.clone())
+            .unwrap_or("/public/img/rejection.jpg".to_string());
 
         rsx!(
             div {
@@ -630,34 +706,38 @@ fn Tallys(cx: Scope, balance_id: Option<i32>, include_trx: Option<bool>) -> Elem
         )
     });
 
-    render!(
-        tally_obj
+    rsx!(
+        { tally_obj }
         if include_trx.unwrap_or(false) {
-            rsx!(
-                h3 {
-                    class: "cost_seperator",
-                    "Ausgleichende Zahlungen"
-                }
-                TallyTransactions { tally: tally, }
-            )
-        } else { rsx!({}) }
+            { rsx!(
+                    h3 {
+                        class: "cost_seperator",
+                        "Ausgleichende Zahlungen"
+                    }
+                    TallyTransactions { tally: tally, }
+            ) }
+        } else {
+        }
     )
 }
 
-
-#[inline_props]
-fn BalanceEntry( cx: Scope, b: Balance) -> Element {
-    let member = use_shared_state::<WGMember>(cx).unwrap();
+#[component]
+fn BalanceEntry(b: Balance) -> Element {
+    let member = use_context::<Signal<WGMember>>();
     let member = member.read();
-    let user = &member.friends[&b.initiator_id];
-    let profile_pic = upload_to_path( user.profile_pic.clone() ).unwrap_or("/public/img/rejection.jpg".to_string());
 
+    let user = &member.friends[&b.initiator_id];
+    let profile_pic =
+        upload_to_path(user.profile_pic.clone()).unwrap_or("/public/img/rejection.jpg".to_string());
 
     "WG COST: {balance.total_unified_spending.unwrap_or(dec!(0.0))}, USER COST: {balance.my_total_spending.unwrap_or(dec!(0.0))}";
 
-    let date = b.balanced_on.format(&format_description!("[weekday] [day] [month repr:short] [year]")).ok()?;
+    let date = b.balanced_on.format(
+        &format_description::parse("[weekday] [day] [month repr:short] [year]")
+            .expect("Format description valid!"),
+    )?;
 
-    render!(
+    rsx!(
         Link {
             to: "/costs/balance?id={b.id}",
 
@@ -694,17 +774,22 @@ fn BalanceEntry( cx: Scope, b: Balance) -> Element {
     )
 }
 
-#[inline_props]
-fn CostList(cx:Scope, balance_id: Option<i32>) -> Element {
+#[component]
+fn CostList(balance_id: Option<i32>) -> Element {
     let balance_id = balance_id.to_owned();
-    let costs = use_api_else_return!(get_costs; cx, balance_id);
+    //let costs = use_api_else_return!(get_costs; cx, balance_id);
 
-    let mut cost_obj: Vec<LazyNodes> = vec![];
+    let client = use_context::<HTTP>();
+    let val = use_resource(move || get_costs(client.clone(), balance_id));
+    let costs = val.read().ok_or(anyhow!("Not loaded"))?;
+    let costs = costs.context("Costs could not be retrieved")?;
+
+    let mut cost_obj: Vec<Element> = vec![];
     let mut last_year: i32 = costs.get(0)?.added_on.year();
     let mut last_month: Month = costs.get(0)?.added_on.month();
     let mut last_week: u8 = costs.get(0)?.added_on.iso_week();
 
-    costs.iter().for_each(|c|{
+    costs.iter().for_each(|c| {
         let year: i32 = c.added_on.year();
         let month: Month = c.added_on.month();
         let week: u8 = c.added_on.iso_week();
@@ -751,17 +836,17 @@ fn CostList(cx:Scope, balance_id: Option<i32>) -> Element {
         last_year = year;
     });
 
-    render!(
+    rsx!(
         div {
             class: "scroll_container",
 
-            cost_obj.into_iter()
+            { cost_obj.into_iter() }
         }
     )
 }
 
-#[inline_props]
-fn CostEntry(cx: Scope, c: Cost) -> Element {
+#[component]
+fn CostEntry(c: Cost) -> Element {
     let member = use_shared_state::<WGMember>(cx).unwrap();
     let member = member.read();
     let interpreted = interpret_cost(member.identity.id, &c)?;
@@ -769,11 +854,13 @@ fn CostEntry(cx: Scope, c: Cost) -> Element {
     let user = &member.friends[&c.creditor_id];
     let profile_pic = upload_to_path(user.profile_pic.clone()).unwrap_or("".to_string());
 
-
     let amt = c.amount.round_dp(2);
-    let date = c.added_on.format(&format_description!("[day] [month repr:short]")).expect("EE");
+    let date = c
+        .added_on
+        .format(&format_description!("[day] [month repr:short]"))
+        .expect("EE");
 
-    render!(
+    rsx!(
         div {
             class: "cost_card",
             key: "{c.id}",
@@ -809,8 +896,8 @@ struct InterpretedCost {
     my_gain: Decimal,
     /// how much one share is worth
     single_payment: Decimal,
-    /// whether this user is the creditor 
-    am_creditor: bool
+    /// whether this user is the creditor
+    am_creditor: bool,
 }
 
 fn interpret_cost(me_id: i32, cost: &Cost) -> Option<InterpretedCost> {
@@ -831,29 +918,39 @@ fn interpret_cost(me_id: i32, cost: &Cost) -> Option<InterpretedCost> {
     if am_creditor {
         my_gain += repayment;
     } else {
-        my_gain -= if my_share_paid { Decimal::ZERO } else { single_payment };
+        my_gain -= if my_share_paid {
+            Decimal::ZERO
+        } else {
+            single_payment
+        };
     }
 
-    return Some(InterpretedCost {my_gain, single_payment, am_creditor});
+    return Some(InterpretedCost {
+        my_gain,
+        single_payment,
+        am_creditor,
+    });
 }
 
-#[inline_props]
-pub fn AmountDisplay ( cx: Scope, amt: Decimal, strikethrough: Option<bool> ) -> Element {
+#[component]
+pub fn AmountDisplay(amt: Decimal, strikethrough: Option<bool>) -> Element {
     let strikethrough = strikethrough.unwrap_or(false);
     let mut amtstr = format!("{amt:.2}");
     if amt.is_sign_positive() {
         amtstr.insert(0, '+');
     }
 
-    let class =
-        if amt.is_zero() || strikethrough {
-            "amount_display zero"
+    let class = if amt.is_zero() || strikethrough {
+        "amount_display zero"
+    } else {
+        if amt.is_sign_positive() {
+            "amount_display positive"
         } else {
-            if amt.is_sign_positive() { "amount_display positive" }
-            else { "amount_display negative" }
-        };
+            "amount_display negative"
+        }
+    };
 
-    render!(
+    rsx!(
         span {
             class: class,
 

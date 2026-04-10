@@ -259,18 +259,20 @@ async fn post_wg_costs(
 ) -> Result<impl Responder, DatabaseError> {
     let mut trx = db!().begin().await?;
 
+    let mut poster = identity.id;
     let mut creditor_id = identity.id;
     if let Some(user_id) = new_cost.on_behalf_of_user_id {
         creditor_id = user_id;
     }
 
     let cost_id: i32 = sqlx::query_scalar!(
-        "INSERT INTO costs (wg_id, name, amount, creditor_id, added_on) VALUES
-    ($1, $2, $3, $4, $5) RETURNING id;",
+        "INSERT INTO costs (wg_id, name, amount, creditor_id, poster_id, added_on) VALUES
+    ($1, $2, $3, $4, $5, $6) RETURNING id;",
         wg_id,
         new_cost.name,
         new_cost.amount,
         creditor_id,
+        poster,
         new_cost.added_on
     )
     .fetch_one(&mut trx)
@@ -561,4 +563,3 @@ let filepath=format!("uploads/temp/{}{}", temp_upload.local_id, match get_mime_e
            None=>"".to_string()
        } );
 */
-

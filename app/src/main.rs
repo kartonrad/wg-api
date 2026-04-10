@@ -1,26 +1,25 @@
 #![allow(non_snake_case)]
 use common::auth::LoginInfo;
 // import the prelude to get access to the `rsx!` macro and the `Scope` and `Element` types
-use dioxus::{
-    prelude::*
-};
-use dioxus_router::{Link, Redirect, Route, Router, use_router};
+use dioxus::prelude::*;
+use dioxus_router::{use_router, Link, Redirect, Route, Router};
 use log::Level;
 
-mod identity_service;
-mod constants;
 pub mod api;
+mod constants;
+mod identity_service;
 pub mod screens;
 mod time;
 
 use screens::{chores::ChoreScreen, costs::*, home::HomeScreen, settings::SettingScreen};
 
 use constants::API_URL;
-use identity_service::{LoginEvent, upload_to_path, WGMember};
+use identity_service::{upload_to_path, LoginEvent, WGMember};
 
 fn main() {
     // launch the web app
-    #[cfg(feature = "web")]{
+    #[cfg(feature = "web")]
+    {
         console_log::init_with_level(Level::Trace).expect("Logging to initialize??");
         dioxus_web::launch(App);
     }
@@ -32,40 +31,42 @@ fn main() {
 }
 
 // create a component that renders a div with the text "Hello, world!"
-fn App(cx: Scope) -> Element {
-    render!(
+fn App() -> Element {
+    rsx!(
         style { include_str!("../dist/post-style.css") }
-    
+
         identity_service::IdentityProvider {}
     )
 }
 
-// Identity Provider calls this 
-pub fn LoggedOutApp(cx: Scope) -> Element {
-    render!(
+// Identity Provider calls this
+pub fn LoggedOutApp() -> Element {
+    rsx!(
         "logged out"
         SketchyLoginForm {}
     )
 }
 
-pub fn SketchyLoginForm(cx: Scope) -> Element {
-    let login_handle = use_coroutine_handle::<LoginEvent>(cx).expect("SketchyLoginForm only runs under IdentityProvider (getting coroutine handle fialed)");
+pub fn SketchyLoginForm() -> Element {
+    let login_handle = use_coroutine_handle::<LoginEvent>().expect(
+        "SketchyLoginForm only runs under IdentityProvider (getting coroutine handle fialed)",
+    );
 
-    let when_submit = |ev : FormEvent| {
-        ev.stop_propagation(); 
+    let when_submit = |ev: FormEvent| {
+        ev.stop_propagation();
         let info = (|| -> Option<LoginInfo> {
             Some(LoginInfo {
                 username: ev.values.get("username")?.to_owned(),
-                password: ev.values.get("password")?.to_owned()
+                password: ev.values.get("password")?.to_owned(),
             })
         })();
-        
+
         if let Some(info) = info {
             login_handle.send(LoginEvent::Login(info));
         }
     };
 
-    render!(
+    rsx!(
         form {
             class: "login_form",
             prevent_default: "onsubmit",
@@ -95,21 +96,20 @@ pub fn SketchyLoginForm(cx: Scope) -> Element {
             }
             br {}
 
-            input { 
+            input {
                 r#type: "submit",
-                value: "Login" 
+                value: "Login"
             }
         }
     )
 }
 
-// Identity Provider also  calls this 
-#[inline_props]
-pub fn LoggedInApp<'a>(cx: Scope, member: &'a WGMember) -> Element {
+// Identity Provider also  calls this
+pub fn LoggedInApp(member: WGMember) -> Element {
     to_owned![member];
     use_shared_state_provider(cx, || member.clone()); // finally, globally share member - it can now be edited from anywere below in the tree
 
-    render!(
+    rsx!(
         Router {
             Route { to: "/home",     Layout { HomeScreen  {} }  } // BottomTabs need to be in here for links to work
             Route { to: "/chores",   Layout { ChoreScreen  {} }  }
@@ -127,8 +127,7 @@ pub fn LoggedInApp<'a>(cx: Scope, member: &'a WGMember) -> Element {
     )
 }
 
-
-fn TopTabs(cx: Scope) -> Element {
+fn TopTabs() -> Element {
     cx.render(rsx!(
         nav {
             class: "top_tabs",
@@ -140,8 +139,8 @@ fn TopTabs(cx: Scope) -> Element {
     ))
 }
 
-#[inline_props]
-pub fn HeaderBar<'a>(cx: Scope, title: &'a str) -> Element {
+#[component]
+pub fn HeaderBar(title: String) -> Element {
     let router = use_router(cx);
 
     render!(
@@ -160,11 +159,11 @@ pub fn HeaderBar<'a>(cx: Scope, title: &'a str) -> Element {
     )
 }
 
-#[inline_props]
-pub fn Layout<'a>(cx: Scope, children: Element<'a>) -> Element {
+pub fn Layout(children: Element) -> Element {
     let member = use_shared_state::<WGMember>(cx).unwrap();
 
-    let upl = upload_to_path( member.read().wg.header_pic.clone()).unwrap_or("/public/img/rejection.jpg".to_string());
+    let upl = upload_to_path(member.read().wg.header_pic.clone())
+        .unwrap_or("/public/img/rejection.jpg".to_string());
 
     render!(
         div {
@@ -177,8 +176,7 @@ pub fn Layout<'a>(cx: Scope, children: Element<'a>) -> Element {
     )
 }
 
-fn BottomTabs(cx: Scope) -> Element {
-    
+fn BottomTabs() -> Element {
     cx.render(rsx!(
         nav {
             class: "bottom_tabs",
@@ -190,3 +188,4 @@ fn BottomTabs(cx: Scope) -> Element {
         }
     ))
 }
+
