@@ -56,7 +56,7 @@ pub fn CostNewScreen() -> Element {
 
     // AMOUNT
     let decimal_str = use_signal(|| "0.00".to_string());
-    let decimal = Decimal::from_str_exact(decimal_str.get()).unwrap_or(dec!(0.0));
+    let decimal = Decimal::from_str_exact(&decimal_str.read()).unwrap_or(dec!(0.0));
 
     let on_amount_change = |evt: Event<FormData>| {
         trace!("WHAT THE HELL");
@@ -143,11 +143,13 @@ pub fn CostNewScreen() -> Element {
         spawn({
             to_owned![router, http, decimal, debtor_list];
             let added_on = added_on.cloned();
-            let name = evt
-                .values()
-                .get("name".into())
-                .unwrap_or(&"Unbenannt >:(".to_string())
-                .to_owned();
+
+            let form_values = evt.values();
+            let name = form_values.iter().find(|entry| entry.0 == "name");
+            let name = match name {
+                Some((_, FormValue::Text(name))) => name.to_owned(),
+                _ => "Unnamed >:(".to_string(),
+            };
 
             async move {
                 to_owned![added_on, name];
@@ -781,13 +783,22 @@ fn CostList(balance_id: Option<i32>) -> Element {
 
     let client = use_context::<HTTP>();
     let val = use_resource(move || get_costs(client.clone(), balance_id));
-    let costs = val.read().ok_or(anyhow!("Not loaded"))?;
+    // TODO: Error Displaying?
+    let costs = val.read().clone().ok_or(anyhow!("Not loaded"))?;
     let costs = costs.context("Costs could not be retrieved")?;
 
     let mut cost_obj: Vec<Element> = vec![];
-    let mut last_year: i32 = costs.get(0)?.added_on.year();
-    let mut last_month: Month = costs.get(0)?.added_on.month();
-    let mut last_week: u8 = costs.get(0)?.added_on.iso_week();
+
+    let Some(first_cost) = costs.get(0) else {
+        // Empty
+        return rsx!(div {
+            class: "scroll_container",
+        });
+    };
+
+    let mut last_year: i32 = first_cost.added_on.year();
+    let mut last_month: Month = first_cost.added_on.month();
+    let mut last_week: u8 = first_cost.added_on.iso_week();
 
     costs.iter().for_each(|c| {
         let year: i32 = c.added_on.year();
@@ -847,9 +858,10 @@ fn CostList(balance_id: Option<i32>) -> Element {
 
 #[component]
 fn CostEntry(c: Cost) -> Element {
-    let member = use_shared_state::<WGMember>(cx).unwrap();
+    let member = use_context::<Signal<WGMember>>();
     let member = member.read();
-    let interpreted = interpret_cost(member.identity.id, &c)?;
+    let interpreted = interpret_cost(member.identity.id, &c)
+        .ok_or(anyhow!("Could not interpret the cost data."))?;
 
     let user = &member.friends[&c.creditor_id];
     let profile_pic = upload_to_path(user.profile_pic.clone()).unwrap_or("".to_string());
@@ -857,7 +869,10 @@ fn CostEntry(c: Cost) -> Element {
     let amt = c.amount.round_dp(2);
     let date = c
         .added_on
-        .format(&format_description!("[day] [month repr:short]"))
+        .format(
+            &format_description::parse("[day] [month repr:short]")
+                .expect("Format description should be fine."),
+        )
         .expect("EE");
 
     rsx!(
