@@ -3,7 +3,7 @@ use anyhow::{anyhow, bail};
 use common::auth::LoginInfo;
 // import the prelude to get access to the `rsx!` macro and the `Scope` and `Element` types
 use dioxus::prelude::*;
-use dioxus_router::{router, use_router, Link, Outlet, Routable, Router};
+use dioxus_router::{router, use_route, use_router, Link, Outlet, Routable, Router};
 use log::Level;
 
 pub mod api;
@@ -21,6 +21,7 @@ fn main() {
     // launch the web app
     #[cfg(feature = "web")]
     {
+        console_error_panic_hook::set_once();
         console_log::init_with_level(Level::Trace).expect("Logging to initialize??");
         launch(App);
     }
@@ -56,6 +57,7 @@ pub fn SketchyLoginForm() -> Element {
                                                              );*/
     let when_submit = move |ev: FormEvent| async move {
         let values = ev.values();
+        ev.prevent_default();
 
         let username = values.iter().find(|entry| entry.0 == "username");
         let username = match username {
@@ -126,7 +128,7 @@ pub fn SketchyLoginForm() -> Element {
 }
 
 #[rustfmt::skip]
-#[derive(Clone, Debug, PartialEq, Routable)]
+#[derive(Routable, Clone, Debug, PartialEq, )]
 enum Route {
     #[layout(Layout)]
     #[route("/chores")]
@@ -137,25 +139,30 @@ enum Route {
         #[route("/new")]
         CostNewScreen {},
 
-        #[route("/detail")]
-        CostDetailScreen {},
+        #[route("/detail?:cost_id")]
+        CostDetailScreen {
+            cost_id: i32,
+        },
 
-
-        #[route("/balance")]
-        CostBalanceDetailScreen {},
+        #[route("/balance?:balance_id")]
+        CostBalanceDetailScreen {
+            balance_id: i32,
+        },
 
         #[layout(TopTabs)]
-        #[route("/")]
-        CostListScreen {},
-        #[route("/tally")]
-        CostTallyScreen {},
-        #[route("/stats")]
-        CostStatScreen {},
-
+            #[route("/")]
+            CostListScreen {},
+            #[route("/tally")]
+            CostTallyScreen {},
+            #[route("/stats")]
+            CostStatScreen {},
+        #[end_layout]
     #[end_nest]
 
     #[route("/")]
     HomeScreen,
+    #[route("/settings")]
+    SettingScreen,
 }
 
 // Identity Provider also  calls this
@@ -177,7 +184,9 @@ fn TopTabs() -> Element {
             Link { to: "/costs/tally",   span {"Stand"} }
             Link { to: "/costs/stats",span {"Statistik"} }
         }
-        Outlet::<Route> {}
+        ErrorBoundary {
+            Outlet::<Route> {}
+        }
     )
 }
 
@@ -209,12 +218,43 @@ pub fn Layout() -> Element {
     let upl = upload_to_path(member.read().wg.header_pic.clone())
         .unwrap_or("/public/img/rejection.jpg".to_string());
 
+    let route: Route = use_route();
+    let previous_route = use_signal(|| None);
+
+    use_effect(|| {});
+
     rsx!(
         div {
             class: "wg_app_background",
             background_image: "url({API_URL}{upl})",
 
-            Outlet::<Route> {}
+            ErrorBoundary {
+                handle_error: move |errors: ErrorContext| {
+                    to_owned![route, previous_route];
+
+                    match previous_route.cloned() {
+                        None => previous_route.set(Some(route)),
+                        Some(ref prev_route) =>
+                            if &route!=prev_route {
+                                previous_route.set(None);
+                                errors.clear_errors();
+                            }
+                    }
+
+                    rsx!(
+                        div {
+                            "Oops, we encountered an error. Please report {errors:?} to the developer of this application"
+                        }
+                        button {
+                            onclick: move |_| {
+                                errors.clear_errors();
+                            },
+                            "try again"
+                        }
+                    )
+                },
+                Outlet::<Route> {}
+            }
         }
         BottomTabs {}
     )

@@ -1,8 +1,9 @@
 #![allow(non_snake_case)]
 
-use crate::api::{get_balances, get_costs, get_stats, get_tally, HTTP};
+use crate::api::{get_balances, get_cost, get_costs, get_shares, get_stats, get_tally, HTTP};
 use crate::identity_service::{upload_to_path, WGMember};
 use crate::time::{current_utc_time, date_to_local_offset, local_tz_offset};
+use crate::Route;
 use crate::{constants::API_URL, use_api_else_return, HeaderBar};
 use common::{
     Balance, BalancingTransaction, Cost, CostInput, RegularDef, RegularSpending, UserDebt,
@@ -34,19 +35,17 @@ pub fn CostNewScreen() -> Element {
     let time = use_resource(|| {
         Box::pin(async {
             let utc_offset = local_tz_offset().await?;
-            let mut current_date = current_utc_time().await?;
-            date_to_local_offset(&mut current_date).await;
+            let current_date = current_utc_time().await?;
+            let current_date = date_to_local_offset(current_date).await;
 
             Some((utc_offset, current_date))
         })
     });
-    let (utc_offset, current_date) = time
-        .read_unchecked()
-        .cloned()
-        .unwrap()
-        .ok_or(anyhow!("Couldn't get time"))?;
+    let Some(Some((utc_offset, current_date))) = time.read_unchecked().cloned() else {
+        return rsx!("loading time...");
+    };
 
-    let added_on = use_signal(|| current_date);
+    let mut added_on = use_signal(|| current_date);
     let added_on_str = added_on.read().format(
         // TODO: in konstante auslagern?
         &format_description::parse("[year]-[month]-[day]T[hour]:[minute]")
@@ -55,10 +54,10 @@ pub fn CostNewScreen() -> Element {
     trace!("ISO Current date: {added_on_str}");
 
     // AMOUNT
-    let decimal_str = use_signal(|| "0.00".to_string());
+    let mut decimal_str = use_signal(|| "0.00".to_string());
     let decimal = Decimal::from_str_exact(&decimal_str.read()).unwrap_or(dec!(0.0));
 
-    let on_amount_change = |evt: Event<FormData>| {
+    let on_amount_change = move |evt: Event<FormData>| {
         trace!("WHAT THE HELL");
         let mut amt = evt.value().clone();
 
@@ -92,7 +91,7 @@ pub fn CostNewScreen() -> Element {
     };
 
     // DEBTORS
-    let debtors = use_signal(|| {
+    let mut debtors = use_signal(|| {
         let debtors: HashMap<i32, bool> = member
             .friends
             .iter()
@@ -137,8 +136,9 @@ pub fn CostNewScreen() -> Element {
 
     // ON SUBMIT
 
-    let send_cost = move |evt: Event<FormData>| {
+    let send_cost = move |evt: FormEvent| {
         evt.stop_propagation();
+        evt.prevent_default();
         let me_id = mmember.read().identity.id;
         spawn({
             to_owned![router, http, decimal, debtor_list];
@@ -180,7 +180,7 @@ pub fn CostNewScreen() -> Element {
                     }
                 }
             }
-        })
+        });
         //evt.values
     };
 
@@ -188,7 +188,7 @@ pub fn CostNewScreen() -> Element {
         HeaderBar { title: "Eintrag anlegen", }
 
         form {
-            onsubmit: |evt| {}, // send_cost,
+            onsubmit: send_cost,
             // prevent_default: "onsubmit",
 
             div {
@@ -295,7 +295,9 @@ pub fn CostTallyScreen() -> Element {
 
     let client = use_context::<HTTP>();
     let val = use_resource(move || get_balances(client.clone()));
-    let balances = val.read().ok_or(anyhow!("Not loaded"))?;
+    let Some(balances) = val.cloned() else {
+        return rsx!("loading!");
+    };
     let balances = balances.context("Balances could not be retrieved")?;
 
     let balance_obj = balances.into_iter().map(|balance| {
@@ -331,18 +333,26 @@ where
 #[component]
 pub fn CostStatScreen() -> Element {
     let interval = RegularDef::Week;
+    let interval2 = interval.clone();
     // algorithm expects these to be in descending order
     //let stats = use_api_else_return!(get_stats; interval);
 
     use dioxus::core::AnyhowContext;
 
     let client = use_context::<HTTP>();
-    let val = use_resource(move || get_stats(client.clone(), interval));
-    let stats = val.read().ok_or(anyhow!("Not loaded"))?;
+    let val = use_resource(move || get_stats(client.clone(), interval2.clone()));
+    let Some(stats) = val.cloned() else {
+        return rsx!("loading!");
+    };
     let stats = stats.context("Stats could not be retrieved")?;
 
     let n = 20usize;
-    let mut now = use_current_utc_time(cx).unwrap();
+
+    let time = use_resource(|| Box::pin(async { current_utc_time().await }));
+    let Some(Some(mut now)) = time.read_unchecked().cloned() else {
+        return rsx!("loading time");
+    };
+
     let mut statpeeker = stats.into_iter().peekable();
     let mut stat_per_week = Vec::new();
 
@@ -491,35 +501,36 @@ struct IdQuery {
 }
 
 #[component]
-pub fn CostDetailScreen() -> Element {
-    let route = use_route();
-
-    let id = match route.query::<IdQuery>() {
-        None => {
-            return rsx!("AHH BULLSHIT NO ID");
-        }
-        Some(i) => i,
-    }
-    .id;
-
+pub fn CostDetailScreen(cost_id: i32) -> Element {
     let client = use_context::<HTTP>();
-    let val = use_resource(move || get_cost(client.clone(), id));
-    let cost = val.read().ok_or(anyhow!("Not loaded"))?;
+    let val = use_resource(move || get_cost(client.clone(), cost_id));
+    let Some(cost) = val.cloned() else {
+        return rsx!("loading!");
+    };
     let cost = cost.context("Cost could not be retrieved")?;
 
-    let member = use_shared_state::<WGMember>(cx).unwrap();
+    let member = use_context::<Signal<WGMember>>();
     let member = member.read();
-    let interpreted = interpret_cost(member.identity.id, &cost)?;
+    let interpreted =
+        interpret_cost(member.identity.id, &cost).ok_or(anyhow!("Failed to interpret cost"))?;
 
     //let shares = use_api_else_return!(get_shares; cx, id);
-    let val = use_resource(move || get_shares(client.clone(), id));
-    let shares = val.read().ok_or(anyhow!("Not loaded"))?;
+    let client = use_context::<HTTP>();
+    let val = use_resource(move || get_shares(client.clone(), cost_id));
+    let Some(shares) = val.cloned() else {
+        return rsx!("loading!");
+    };
     let shares = shares.context("Shares could not be retrieved")?;
 
-    let mut date = cost.added_on;
-    use_date_to_local_offset(cx, &mut date);
+    let date = cost.added_on.clone();
+    let date = use_resource(move || Box::pin(async move { date_to_local_offset(date).await }));
+    let Some(date) = date.cloned() else {
+        return rsx!("loading time!");
+    };
 
-    let expanded_date = date.format(&format_description!("[weekday], der [day]. [month repr:long] [year],\n um [hour]:[minute]:[second] Uhr (GMT [offset_hour]:[offset_minute])")).expect("EE");
+    let expanded_date = date.format(
+        &format_description::parse("[weekday], der [day]. [month repr:long] [year],\n um [hour]:[minute]:[second] Uhr (GMT [offset_hour]:[offset_minute])").unwrap()
+    ).expect("EE");
 
     // shares
     let share_obj = shares.iter().map(|share| {
@@ -558,7 +569,7 @@ pub fn CostDetailScreen() -> Element {
     };
 
     rsx!(
-        HeaderBar { title: "Eintrag #{id} 🔎", }
+        HeaderBar { title: "Eintrag #{cost_id} 🔎", }
         div {
             class: "scroll_container",
 
@@ -586,19 +597,9 @@ pub fn CostDetailScreen() -> Element {
 }
 
 #[component]
-pub fn CostBalanceDetailScreen() -> Element {
-    let route = use_route();
-
-    let id = match route.query::<IdQuery>() {
-        None => {
-            return rsx!("AHH BULLSHIT NO ID");
-        }
-        Some(i) => i,
-    }
-    .id;
-
+pub fn CostBalanceDetailScreen(balance_id: i32) -> Element {
     rsx!(
-        HeaderBar { title: "Abrechnung #{id} 🔎", }
+        HeaderBar { title: "Abrechnung #{balance_id} 🔎", }
 
         h3 {
             class: "cost_seperator",
@@ -606,7 +607,7 @@ pub fn CostBalanceDetailScreen() -> Element {
         }
 
         Tallys {
-            balance_id: id,
+            balance_id,
             include_trx: true
         }
 
@@ -616,7 +617,7 @@ pub fn CostBalanceDetailScreen() -> Element {
         }
 
         CostList {
-            balance_id: id
+            balance_id
         }
     )
 }
@@ -689,7 +690,9 @@ fn Tallys(balance_id: Option<i32>, include_trx: Option<bool>) -> Element {
 
     let client = use_context::<HTTP>();
     let val = use_resource(move || get_tally(client.clone(), balance_id));
-    let tally = val.read().ok_or(anyhow!("Not loaded"))?;
+    let Some(tally) = val.cloned() else {
+        return rsx!("Loading...");
+    };
     let tally = tally.context("Balance could not be retrieved")?;
 
     let tally_obj = tally.iter().map(|t| {
@@ -749,9 +752,24 @@ fn BalanceEntry(b: Balance) -> Element {
             .expect("Format description valid!"),
     )?;
 
+    let Balance {
+        id,
+        balanced_on,
+        initiator_id,
+        wg_id,
+        total_unified_spending,
+        i_paid,
+        i_recieved,
+        my_total_spending,
+    } = b;
+    let my_total_spending = my_total_spending.ok_or(anyhow!("This value is required"))?;
+    let total_unified_spending = total_unified_spending.ok_or(anyhow!("This value is required"))?;
+    let i_recieved = i_recieved.ok_or(anyhow!("This value is required"))?;
+    let i_paid = i_paid.ok_or(anyhow!("This value is required"))?;
+
     rsx!(
         Link {
-            to: "/costs/balance?id={b.id}",
+            to: "/costs/balance?balance_id={b.id}",
 
             div {
                 class: "cost_card",
@@ -769,8 +787,8 @@ fn BalanceEntry(b: Balance) -> Element {
                         }
                         "Angeordnet von " i {"{user.name}"}
                         hr {}
-                        "Meine Ausgaben: " AmountDisplay {amt: b.my_total_spending?} br {}
-                        "Ausgaben der WG:" AmountDisplay {amt: b.total_unified_spending?}
+                        "Meine Ausgaben: " AmountDisplay {amt: my_total_spending} br {}
+                        "Ausgaben der WG:" AmountDisplay {amt: total_unified_spending}
                     }
                 }
                 div {
@@ -778,7 +796,7 @@ fn BalanceEntry(b: Balance) -> Element {
 
                     "Bilanz:" br {}
                     AmountDisplay {
-                        amt: b.i_recieved?-b.i_paid?,
+                        amt: i_recieved-i_paid,
                     }
                 }
             }
@@ -794,7 +812,9 @@ fn CostList(balance_id: Option<i32>) -> Element {
     let client = use_context::<HTTP>();
     let val = use_resource(move || get_costs(client.clone(), balance_id));
     // TODO: Error Displaying?
-    let costs = val.read().clone().ok_or(anyhow!("Not loaded"))?;
+    let Some(costs) = val.read().clone() else {
+        return rsx!("Loading...");
+    };
     let costs = costs.context("Costs could not be retrieved")?;
 
     let mut cost_obj: Vec<Element> = vec![];
@@ -842,7 +862,7 @@ fn CostList(balance_id: Option<i32>) -> Element {
 
         cost_obj.push(rsx!(
              Link {
-                to : "/costs/detail?id={c.id}",
+                to : "/costs/detail?cost_id={c.id}",
                 class: "nolink",
                 active_class: "disable_link",
 

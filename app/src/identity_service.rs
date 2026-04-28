@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use dioxus_sdk_storage::{use_persistent, use_singleton_persistent};
 use futures_lite::stream::StreamExt;
 use reqwest::header::HeaderMap;
 
@@ -28,7 +29,7 @@ macro_rules! try_c {
 
 pub fn IdentityProvider() -> Element {
     let other_identities = use_signal(|| Vec::<Token>::new());
-    let identity = use_signal(|| None::<Token>);
+    let identity = use_persistent("identity_token", || None::<Token>);
     let identity2 = identity.clone();
 
     let _service = use_coroutine(move |mut rx: UnboundedReceiver<LoginEvent>| {

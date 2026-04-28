@@ -1,5 +1,5 @@
 use common::{Balance, Cost, CostShare, RegularDef, RegularSpending, UserDebt};
-use dioxus::core::anyhow;
+use dioxus::{core::anyhow, prelude::warn};
 
 use crate::constants::API_URL;
 
@@ -52,6 +52,18 @@ macro_rules! use_api_else_return {
 
 // Functions intended to be used with the macro:
 
+#[derive(thiserror::Error, Clone, Debug)]
+pub enum APIError {
+    #[error("Error while making a request: {0}")]
+    RequestError(String),
+}
+
+impl From<reqwest::Error> for APIError {
+    fn from(value: reqwest::Error) -> Self {
+        APIError::RequestError(format!("{value}"))
+    }
+}
+
 pub async fn get_costs(http: HTTP, id: Option<i32>) -> Option<Vec<Cost>> {
     let qry = if let Some(id) = id {
         format!("?balance={id}")
@@ -63,9 +75,11 @@ pub async fn get_costs(http: HTTP, id: Option<i32>) -> Option<Vec<Cost>> {
         http.get(format!("{API_URL}/api/my_wg/costs{qry}"))
             .send()
             .await
+            .inspect_err(|err| warn!("Request Error: {err}"))
             .ok()?
             .json()
             .await
+            .inspect_err(|err| warn!("Request Error: {err}"))
             .ok()?,
     )
 }
@@ -75,9 +89,11 @@ pub async fn get_cost(http: HTTP, id: i32) -> Option<Cost> {
         http.get(format!("{API_URL}/api/my_wg/costs/{id}/detail"))
             .send()
             .await
+            .inspect_err(|err| warn!("Request Error: {err}"))
             .ok()?
             .json::<Option<Cost>>()
             .await
+            .inspect_err(|err| warn!("Request Error: {err}"))
             .ok()??,
     )
 }
@@ -87,9 +103,11 @@ pub async fn get_shares(http: HTTP, id: i32) -> Option<Vec<CostShare>> {
         http.get(format!("{API_URL}/api/my_wg/costs/{id}/shares"))
             .send()
             .await
+            .inspect_err(|err| warn!("Request Error: {err}"))
             .ok()?
             .json::<Vec<CostShare>>()
             .await
+            .inspect_err(|err| warn!("Request Error: {err}"))
             .ok()?,
     )
 }
@@ -107,9 +125,11 @@ pub async fn get_tally(http: HTTP, id: Option<i32>) -> Option<Vec<UserDebt>> {
         http.get(format!("{API_URL}/api/my_wg/costs/stats{qry}"))
             .send()
             .await
+            .inspect_err(|err| warn!("Request Error: {err}"))
             .ok()?
             .json::<Vec<UserDebt>>()
             .await
+            .inspect_err(|err| warn!("Request Error: {err}"))
             .ok()?,
     )
 }
@@ -119,21 +139,25 @@ pub async fn get_balances(http: HTTP) -> Option<Vec<Balance>> {
         http.get(format!("{API_URL}/api/my_wg/costs/balance"))
             .send()
             .await
+            .inspect_err(|err| warn!("Request Error: {err}"))
             .ok()?
             .json::<Vec<Balance>>()
             .await
+            .inspect_err(|err| warn!("Request Error: {err}"))
             .ok()?,
     )
 }
 
-pub async fn get_stats(
-    http: HTTP,
-    period: RegularDef,
-) -> Result<Vec<RegularSpending>, anyhow::Error> {
-    Ok(http
-        .get(format!("{API_URL}/api/my_wg/costs/over_time/{period}"))
-        .send()
-        .await?
-        .json::<Vec<RegularSpending>>()
-        .await?)
+pub async fn get_stats(http: HTTP, period: RegularDef) -> Option<Vec<RegularSpending>> {
+    Some(
+        http.get(format!("{API_URL}/api/my_wg/costs/over_time/{period}"))
+            .send()
+            .await
+            .inspect_err(|err| warn!("Request Error: {err}"))
+            .ok()?
+            .json::<Vec<RegularSpending>>()
+            .await
+            .inspect_err(|err| warn!("Request Error: {err}"))
+            .ok()?,
+    )
 }

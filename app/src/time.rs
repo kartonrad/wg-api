@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 use log::trace;
 use time::{OffsetDateTime, UtcOffset};
 
-pub async fn date_to_local_offset(date: &mut OffsetDateTime) {
+pub async fn date_to_local_offset(mut date: OffsetDateTime) -> OffsetDateTime {
     #[cfg(feature = "web")]
     {
         // compile time conditional hook call is fine, because it's not runtime-conditional
@@ -19,7 +19,7 @@ pub async fn date_to_local_offset(date: &mut OffsetDateTime) {
         if let Ok(serde_json::Value::Number(num)) = res {
             let off = time::UtcOffset::from_whole_seconds((num.as_i64().unwrap_or(0) * -60) as i32);
             if let Ok(off) = off {
-                *date = date.to_offset(off);
+                date = date.to_offset(off);
                 trace!("TZ success!")
             } else {
                 trace!("TZ failed to create offset");
@@ -34,6 +34,8 @@ pub async fn date_to_local_offset(date: &mut OffsetDateTime) {
             *date = date.to_offset(off);
         }
     }
+
+    date
 }
 
 pub async fn local_tz_offset() -> Option<UtcOffset> {
@@ -107,4 +109,3 @@ pub async fn current_utc_time() -> Option<OffsetDateTime> {
 pub fn get_current_utc_time(  eval:  &dyn Fn(S) -> EvalResult ) -> Option<OffsetDateTime> {
 
 }*/
-
