@@ -130,11 +130,10 @@ pub async fn get_stats(
     http: HTTP,
     period: RegularDef,
 ) -> Result<Vec<RegularSpending>, anyhow::Error> {
-    Some(
-        http.get(format!("{API_URL}/api/my_wg/costs/over_time/{period}"))
-            .send()
-            .await?
-            .json::<Vec<RegularSpending>>()
-            .await?,
-    )
+    Ok(http
+        .get(format!("{API_URL}/api/my_wg/costs/over_time/{period}"))
+        .send()
+        .await?
+        .json::<Vec<RegularSpending>>()
+        .await?)
 }

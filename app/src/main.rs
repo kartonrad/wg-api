@@ -1,8 +1,9 @@
 #![allow(non_snake_case)]
+use anyhow::{anyhow, bail};
 use common::auth::LoginInfo;
 // import the prelude to get access to the `rsx!` macro and the `Scope` and `Element` types
 use dioxus::prelude::*;
-use dioxus_router::{use_router, Link, Redirect, Route, Router};
+use dioxus_router::{router, use_router, Link, Outlet, Routable, Router};
 use log::Level;
 
 pub mod api;
@@ -21,7 +22,7 @@ fn main() {
     #[cfg(feature = "web")]
     {
         console_log::init_with_level(Level::Trace).expect("Logging to initialize??");
-        dioxus_web::launch(App);
+        launch(App);
     }
     #[cfg(feature = "desktop")]
     {
@@ -33,7 +34,9 @@ fn main() {
 // create a component that renders a div with the text "Hello, world!"
 fn App() -> Element {
     rsx!(
-        style { include_str!("../dist/post-style.css") }
+        style {
+            {include_str!("../dist/post-style.css")}
+        }
 
         identity_service::IdentityProvider {}
     )
@@ -48,16 +51,34 @@ pub fn LoggedOutApp() -> Element {
 }
 
 pub fn SketchyLoginForm() -> Element {
-    let login_handle = use_coroutine_handle::<LoginEvent>().expect(
-        "SketchyLoginForm only runs under IdentityProvider (getting coroutine handle fialed)",
-    );
+    let login_handle = use_coroutine_handle::<LoginEvent>(); /* .expect(
+                                                                 "SketchyLoginForm only runs under IdentityProvider (getting coroutine handle fialed)",
+                                                             );*/
+    let when_submit = move |ev: FormEvent| async move {
+        let values = ev.values();
 
-    let when_submit = |ev: FormEvent| {
-        ev.stop_propagation();
+        let username = values.iter().find(|entry| entry.0 == "username");
+        let username = match username {
+            Some((_, FormValue::Text(username))) => username,
+            _ => {
+                info!("Username field is missing!");
+                return;
+            }
+        };
+
+        let password = values.iter().find(|entry| entry.0 == "password");
+        let password = match password {
+            Some((_, FormValue::Text(password))) => password,
+            _ => {
+                info!("Password field is missing!");
+                return;
+            }
+        };
+
         let info = (|| -> Option<LoginInfo> {
             Some(LoginInfo {
-                username: ev.values.get("username")?.to_owned(),
-                password: ev.values.get("password")?.to_owned(),
+                username: username.to_string(),
+                password: password.to_string(),
             })
         })();
 
@@ -104,31 +125,51 @@ pub fn SketchyLoginForm() -> Element {
     )
 }
 
-// Identity Provider also  calls this
-pub fn LoggedInApp(member: WGMember) -> Element {
-    to_owned![member];
-    use_shared_state_provider(cx, || member.clone()); // finally, globally share member - it can now be edited from anywere below in the tree
+#[rustfmt::skip]
+#[derive(Clone, Debug, PartialEq, Routable)]
+enum Route {
+    #[layout(Layout)]
+    #[route("/chores")]
+    ChoreScreen,
 
-    rsx!(
-        Router {
-            Route { to: "/home",     Layout { HomeScreen  {} }  } // BottomTabs need to be in here for links to work
-            Route { to: "/chores",   Layout { ChoreScreen  {} }  }
+    #[nest("/costs")]
 
-            Route { to: "/costs",    Layout { TopTabs {} CostListScreen {} }  }
-            Route { to: "/costs/new",    Layout { CostNewScreen {} }  }
-            Route { to: "/costs/detail", Layout { CostDetailScreen  {} }  }
-            Route { to: "/costs/tally", Layout { TopTabs {} CostTallyScreen {} }  }
-            Route { to: "/costs/balance", Layout { CostBalanceDetailScreen {} }  }
-            Route { to: "/costs/stats", Layout { TopTabs {}  CostStatScreen  {} }  }
+        #[route("/new")]
+        CostNewScreen {},
 
-            Route { to: "/settings", Layout { SettingScreen  {} }  }
-            Redirect { from: "", to: "/home" }
-        }
-    )
+        #[route("/detail")]
+        CostDetailScreen {},
+
+
+        #[route("/balance")]
+        CostBalanceDetailScreen {},
+
+        #[layout(TopTabs)]
+        #[route("/")]
+        CostListScreen {},
+        #[route("/tally")]
+        CostTallyScreen {},
+        #[route("/stats")]
+        CostStatScreen {},
+
+    #[end_nest]
+
+    #[route("/")]
+    HomeScreen,
 }
 
+// Identity Provider also  calls this
+#[component]
+pub fn LoggedInApp(member: WGMember) -> Element {
+    to_owned![member];
+    use_context_provider(|| Signal::new(member.clone())); // finally, globally share member - it can now be edited from anywere below in the tree
+
+    rsx!(Router::<Route> {})
+}
+
+#[component]
 fn TopTabs() -> Element {
-    cx.render(rsx!(
+    rsx!(
         nav {
             class: "top_tabs",
 
@@ -136,20 +177,22 @@ fn TopTabs() -> Element {
             Link { to: "/costs/tally",   span {"Stand"} }
             Link { to: "/costs/stats",span {"Statistik"} }
         }
-    ))
+        Outlet::<Route> {}
+    )
 }
 
 #[component]
 pub fn HeaderBar(title: String) -> Element {
-    let router = use_router(cx);
+    let router = router();
 
-    render!(
+    rsx!(
         nav {
             class: "header_bar",
 
             a {
-                onclick: |_| {
-                    router.pop_route();
+                onclick: move |_| {
+                    //router.pop_route();
+                    router.go_back();
                 },
 
                 "⬅️"
@@ -159,33 +202,33 @@ pub fn HeaderBar(title: String) -> Element {
     )
 }
 
-pub fn Layout(children: Element) -> Element {
-    let member = use_shared_state::<WGMember>(cx).unwrap();
+#[component]
+pub fn Layout() -> Element {
+    let member = use_context::<Signal<WGMember>>();
 
     let upl = upload_to_path(member.read().wg.header_pic.clone())
         .unwrap_or("/public/img/rejection.jpg".to_string());
 
-    render!(
+    rsx!(
         div {
             class: "wg_app_background",
             background_image: "url({API_URL}{upl})",
 
-            children
+            Outlet::<Route> {}
         }
         BottomTabs {}
     )
 }
 
 fn BottomTabs() -> Element {
-    cx.render(rsx!(
+    rsx!(
         nav {
             class: "bottom_tabs",
 
-            Link { to: "/home",    span {"💒"} }
+            Link { to: "/",    span {"💒"} }
             Link { to: "/chores",  span {"🧹"} }
             Link { to: "/costs",   span {"💵"} }
             Link { to: "/settings",span {"⚙️"} }
         }
-    ))
+    )
 }
-

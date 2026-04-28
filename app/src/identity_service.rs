@@ -26,11 +26,12 @@ macro_rules! try_c {
     };
 }
 
-pub fn IdentityProvider(cx: Scope) -> Element {
-    let other_identities = use_ref(&cx, || Vec::<Token>::new());
-    let identity = use_ref(&cx, || None::<Token>);
+pub fn IdentityProvider() -> Element {
+    let other_identities = use_signal(|| Vec::<Token>::new());
+    let identity = use_signal(|| None::<Token>);
+    let identity2 = identity.clone();
 
-    let _service = use_coroutine(&cx, |mut rx: UnboundedReceiver<LoginEvent>| {
+    let _service = use_coroutine(move |mut rx: UnboundedReceiver<LoginEvent>| {
         to_owned![other_identities, identity];
 
         let client = reqwest::Client::builder()
@@ -69,17 +70,17 @@ pub fn IdentityProvider(cx: Scope) -> Element {
         }
     });
 
-    if let Some(ident) = &*identity.read() {
-        render!(SomeWrapper {
+    if let Some(ident) = identity2.cloned() {
+        rsx!(SomeWrapper {
             token: ident.clone()
         })
     } else {
-        render!(LoggedOutApp {})
+        rsx!(LoggedOutApp {})
     }
 }
 
 #[component]
-pub fn SomeWrapper(cx: Scope, token: Token) -> Element {
+pub fn SomeWrapper(token: Token) -> Element {
     // Responsible for providing the global client for authenticated requests!
     let mut headers = HeaderMap::new();
     headers.append(
@@ -88,7 +89,6 @@ pub fn SomeWrapper(cx: Scope, token: Token) -> Element {
     ); // EVIL UNWRAP!!
 
     let meclient = use_context_provider(
-        cx,
         move || {
             reqwest::Client::builder()
                 .default_headers(headers)
@@ -101,24 +101,26 @@ pub fn SomeWrapper(cx: Scope, token: Token) -> Element {
     );
 
     // Responsible for loading the WG - checking
-    let member = use_future(cx, (token,), |_| {
+    let member = use_resource(move || {
         let meclient = meclient.clone(); // inefficient???? no it uses an internal reference counter!! (banger)
         get_member(meclient)
     });
 
-    if let Some(member) = member.value() {
+    if let Some(ref member) = *member.read() {
         match member {
             Ok(member) => {
-                return render!(LoggedInApp { member: member });
+                return rsx!(LoggedInApp {
+                    member: member.clone()
+                });
             }
             Err(e) => {
                 // handle the Error that user is in no wg - with explanation
-                return render!( "Error occured.\nSomething might not have gone through,\nor you aren't member of any WG...\nWhich we should probably detect and handle lol\nBut no\n {e:?}" );
+                return rsx!( "Error occured.\nSomething might not have gone through,\nor you aren't member of any WG...\nWhich we should probably detect and handle lol\nBut no\n {e:?}" );
             }
         }
     }
 
-    render!("Opening WG...")
+    rsx!("Opening WG...")
 }
 
 // REQUESTS

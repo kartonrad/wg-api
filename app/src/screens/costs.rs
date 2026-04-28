@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-use crate::api::{get_costs, get_stats, get_tally, HTTP};
+use crate::api::{get_balances, get_costs, get_stats, get_tally, HTTP};
 use crate::identity_service::{upload_to_path, WGMember};
 use crate::time::{current_utc_time, date_to_local_offset, local_tz_offset};
 use crate::{constants::API_URL, use_api_else_return, HeaderBar};
@@ -293,7 +293,11 @@ pub fn CostTallyScreen() -> Element {
     let member = use_context::<Signal<WGMember>>();
     let member = member.read();
 
-    let balances = use_api_else_return!(get_balances; cx);
+    let client = use_context::<HTTP>();
+    let val = use_resource(move || get_balances(client.clone()));
+    let balances = val.read().ok_or(anyhow!("Not loaded"))?;
+    let balances = balances.context("Balances could not be retrieved")?;
+
     let balance_obj = balances.into_iter().map(|balance| {
         let _user = &member.friends[&balance.initiator_id];
 
@@ -328,7 +332,7 @@ where
 pub fn CostStatScreen() -> Element {
     let interval = RegularDef::Week;
     // algorithm expects these to be in descending order
-    let stats = use_api_else_return!(get_stats; interval);
+    //let stats = use_api_else_return!(get_stats; interval);
 
     use dioxus::core::AnyhowContext;
 
@@ -498,13 +502,19 @@ pub fn CostDetailScreen() -> Element {
     }
     .id;
 
-    let cost = use_api_else_return!(get_cost; cx, id);
+    let client = use_context::<HTTP>();
+    let val = use_resource(move || get_cost(client.clone(), id));
+    let cost = val.read().ok_or(anyhow!("Not loaded"))?;
+    let cost = cost.context("Cost could not be retrieved")?;
 
     let member = use_shared_state::<WGMember>(cx).unwrap();
     let member = member.read();
     let interpreted = interpret_cost(member.identity.id, &cost)?;
 
-    let shares = use_api_else_return!(get_shares; cx, id);
+    //let shares = use_api_else_return!(get_shares; cx, id);
+    let val = use_resource(move || get_shares(client.clone(), id));
+    let shares = val.read().ok_or(anyhow!("Not loaded"))?;
+    let shares = shares.context("Shares could not be retrieved")?;
 
     let mut date = cost.added_on;
     use_date_to_local_offset(cx, &mut date);
@@ -534,7 +544,7 @@ pub fn CostDetailScreen() -> Element {
                         strikethrough: strikethrough,
                     }
                     if share.paid {
-                        rsx!(b { "✅" })
+                        b { "✅" }
                     }
                 }
             }
