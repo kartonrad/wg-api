@@ -11,10 +11,8 @@ build = "build.rs"
 common = { path = "../common" }
 
 # Dioxus
-dioxus = "0.7.4"
-dioxus-router = "0.7.4"
-dioxus-web = { version = "0.7.4", optional = true }
-dioxus-desktop = { version = "0.7.4", optional = true }
+dioxus = { version = "0.7.4", features = ["router"] }
+dioxus-sdk = { version = "0.7.0", features = ["storage"] }
 
 # Logging
 log = "0.4.17"
@@ -29,16 +27,17 @@ serde = "1.0.160"
 serde_json = "1.0.96"
 rust_decimal = "1.26.1"
 rust_decimal_macros = "1.29.1"
+
 time = { version = "0.3.14", features = ["serde-well-known", "local-offset", "parsing"] }
 anyhow = "1.0.102"
-
 thiserror = "1.0.37"
-dioxus-sdk-storage = "0.7.0"
 
 [build-dependencies]
 npm_rs = "1.0.0"
 
 [features]
 default=["web"]
-web = ["dep:dioxus-web", "dep:console_log", "dioxus/web"]
-desktop = ["dep:dioxus-desktop", "dep:pretty_env_logger", "dioxus/desktop"]
+web = ["dioxus/web", "dep:console_log", ]
+desktop = ["dioxus/desktop", "dep:pretty_env_logger" ]
+mobile = ["dioxus/mobile"]
+
